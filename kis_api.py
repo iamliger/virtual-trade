@@ -10,8 +10,9 @@ APP_SECRET = os.getenv("HM_APPSECRET")
 ACCOUNT_NO = os.getenv("HM_ACCOUNT_NO")
 
 # 🔧 [공식 문서 규격] 한국투자증권 모의투자 전용 도메인 및 포트 지정
-BASE_URL = "https://koreainvestment.com"
+# BASE_URL = "https://koreainvestment.com"
 
+BASE_URL = "https://openapivts.koreainvestment.com:29443"
 def get_access_token():
     """증권사 모의투자 서버로부터 6시간 동안 유효한 공식 가상 출입증(토큰)을 발급받는 함수"""
     # 공식 토큰 발급 엔드포인트 주소
