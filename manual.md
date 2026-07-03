@@ -104,3 +104,17 @@ pip install -r requirements.txt
 
 ### ② 구동 원리
 `execute_scalping_buy()` 또는 `execute_scalping_sell()` 함수가 실행되면, 연산 결과 화면 바로 아래에 `💡 [용어 설명]`이라는 머리말과 함께 해당 단어의 정의가 실시간 출력되어 가독성을 높입니다.
+
+
+
+---
+
+## 8. 🧠 로컬 AI (Ollama - Llama3) 판단 엔진 연동 기술
+외부 유료 API 비용을 단 1원도 쓰지 않고 내 컴퓨터의 64GB 자원을 100% 활용하여 인공지능 투자 브레인을 탑재한 기능입니다.
+
+### ① 구동 원리 및 데이터 포맷 제어
+- `ai_brain.py` 모듈이 작동하면 `yfinance`에서 추출한 '실시간 현재가'와 '최근 5분간의 주가 흐름 배열'을 수집합니다.
+- AI가 주식 거래 프로그램이 이해할 수 있는 순수한 데이터 구조만 뱉도록 규격화된 **JSON 형식**(`{ "decision": "결정", "reason": "이유" }`)으로 응답을 한정 지었습니다.
+
+### ② 🚨 중요: 한글 강제 제어 (프롬프트 엔지니어링)
+Llama3 순정 모델은 영어를 기본으로 구사하기 때문에, 주식 한자어나 한국어 대답 조건에 압박을 가하는 특수 규칙(`**CRITICAL RULE: The value of 'reason' MUST BE WRITTEN IN KOREAN LANGUAGE ONLY.**`)을 시스템 명령어(System Instruction)에 주입하여 완벽한 한국어 보고서를 받아내도록 가스라이팅을 성공시켰습니다.
