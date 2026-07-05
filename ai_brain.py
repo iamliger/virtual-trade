@@ -1,7 +1,7 @@
 # ai_brain.py
 
 import json
-import re  # 복잡한 문자열에서 JSON만 추출하기 위한 도구
+import re
 
 import ollama
 
@@ -9,21 +9,16 @@ import ollama
 def get_ai_investment_decision(
     ticker, current_price, price_history_str, news_headlines
 ):
-    # 1. AI에게 더 강력하게 명령 (가스라이팅 수준)
+    # AI 가스라이팅 강화: 이유를 반드시 쓰라고 명령
     system_instruction = (
-        "You are a professional stock trader. "
-        "Analyze the data and respond ONLY with a valid JSON object. "
-        "No talk, no apology, no intro. ONLY JSON. "
-        'Format: {"decision": "BUY/SELL/HOLD", "reason": "한글 이유"}'
+        "You are a professional stock analyst. "
+        "Analyze the price data and news, then decide BUY, SELL, or HOLD. "
+        "Your response MUST be a valid JSON object. "
+        "**CRITICAL: The 'reason' field MUST be 1-2 sentences in Korean explaining your logic.**"
     )
 
-    news_context = (
-        "\n".join(news_headlines) if news_headlines else "현재 관련 뉴스 없음"
-    )
+    news_context = "\n".join(news_headlines) if news_headlines else "관련 뉴스 없음"
     user_message = f"Stock: {ticker}, Price: {current_price}, Trend: {price_history_str}, News: {news_context}"
-
-    print(f"\n--- [디버깅] AI 분석 시작: {ticker} ---")
-    print(f"📡 [송신 데이터]: {user_message[:100]}...")  # 데이터가 잘 가는지 확인
 
     try:
         response = ollama.chat(
@@ -32,25 +27,17 @@ def get_ai_investment_decision(
                 {"role": "system", "content": system_instruction},
                 {"role": "user", "content": user_message},
             ],
-            options={"temperature": 0.1},  # 0.1로 낮춰서 더 기계적으로 답변하게 함
+            options={"temperature": 0.5},  # 약간의 창의성을 허용하여 문장을 만들게 함
         )
 
         ai_reply = response.get("message", {}).get("content", "").strip()
+        print(f"📥 [AI 원문 응답]: {ai_reply}")
 
-        # 🔥 [콘솔 출력] AI가 실제로 한 말을 터미널에서 직접 확인하세요!
-        print(f"📥 [AI 원문 응답]:\n{ai_reply}")
-        print("------------------------------------------")
-
-        # 2. JSON 추출 로직 강화 (정규표현식 사용)
         json_match = re.search(r"\{.*\}", ai_reply, re.DOTALL)
         if json_match:
-            clean_json = json_match.group()
-            result = json.loads(clean_json)
-            return result
-        else:
-            print("❌ [디버깅] AI 응답에서 JSON 형식을 찾을 수 없습니다.")
-            return {"decision": "HOLD", "reason": "AI 응답 형식 오류 (콘솔 확인 필요)"}
+            return json.loads(json_match.group())
+
+        return {"decision": "HOLD", "reason": "AI 답변 형식 오류로 인한 대기"}
 
     except Exception as e:
-        print(f"🚨 [디버깅] AI 처리 중 에러 발생: {e}")
-        return {"decision": "HOLD", "reason": f"시스템 에러: {str(e)[:30]}"}
+        return {"decision": "HOLD", "reason": f"AI 분석 중 에러: {e}"}
