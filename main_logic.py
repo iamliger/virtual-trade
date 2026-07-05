@@ -1,5 +1,6 @@
-# main_logic.py (이름 변경 후 코드 전체 교체)
-from datetime import datetime  # <--- 여기도 추가해 주세요!
+# main_logic.py
+import sqlite3
+from datetime import datetime
 
 import yfinance as yf
 
@@ -7,43 +8,79 @@ from ai_brain import get_ai_investment_decision
 from kis_api import get_access_token, get_mock_cash_balance
 from trade_manager import execute_scalping_buy, execute_scalping_sell
 
-# 설정
-TARGET_TICKER = "005930.KS"
-TRADE_QUANTITY = 5
+# 1. 감시 및 추천 후보 종목 리스트
+WATCH_LIST = {
+    "삼성전자": "005930.KS",
+    "SK하이닉스": "000660.KS",
+    "현대차": "005380.KS",
+    "NAVER": "035420.KS",
+    "에코프로비엠": "247540.KQ",
+}
 
 
-def run_trading_cycle(token):
+def run_trading_cycle(token, target_ticker):
+    """
+    선택된 종목에 대해 1분간의 매매 사이클을 수행합니다.
+    모든 결과는 DB에 기록되어 수익률 증명의 근거가 됩니다.
+    """
     try:
-        stock = yf.Ticker(TARGET_TICKER)
+        # 1. 데이터 수집 (주가)
+        stock = yf.Ticker(target_ticker)
         df = stock.history(period="1d", interval="1m")
 
-        # 뉴스 수집 및 정제
-        news_data = stock.news[:3] if stock.news else []
-        news_headlines = [item.get("title") for item in news_data if item.get("title")]
+        if df.empty:
+            return {"error": f"{target_ticker} 데이터를 가져오지 못했습니다."}
 
-        # 💡 [핵심 수정] GUI 표시용 뉴스 문자열을 명확하게 생성
+        current_price = int(df["Close"].iloc[-1])
+        recent_prices = df["Close"].tail(5).tolist()
+        price_history_str = " -> ".join([f"{int(p):,}원" for p in recent_prices])
+
+        # 2. 데이터 수집 (뉴스)
+        raw_news = stock.news[:3] if stock.news else []
+        news_headlines = [item.get("title") for item in raw_news if item.get("title")]
         display_news = (
             "\n".join([f"• {h}" for h in news_headlines])
             if news_headlines
             else "• 최근 관련 뉴스가 없습니다."
         )
 
-        print(f"📰 [디버깅] 화면으로 보낼 뉴스:\n{display_news}")
-
-        # AI 분석 호출 시 실제 수집된 news_headlines 전달
+        # 3. AI 판단 의뢰
         ai_result = get_ai_investment_decision(
-            TARGET_TICKER, df["Close"].iloc[-1], "trend...", news_headlines
+            target_ticker, current_price, price_history_str, news_headlines
         )
+        decision = ai_result.get("decision", "HOLD")
+        reason = ai_result.get("reason", "분석 실패")
 
-        # (중략: 매매 로직...)
+        # 4. 가상 매매 실행 (10주 단위 단타 설정)
+        if decision == "BUY":
+            execute_scalping_buy(target_ticker, current_price, quantity=10)
+        elif decision == "SELL":
+            execute_scalping_sell(target_ticker, current_price, quantity=10)
 
-        # 💡 [핵심 수정] 반환하는 딕셔너리에 display_news를 확실히 담음
+        # 5. AI 판단 기록 (DB 저장 - 복기용)
+        conn = sqlite3.connect("virtual_trade.db")
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO ai_log (log_date, ticker, decision, reason) VALUES (?, ?, ?, ?)",
+            (
+                datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                target_ticker,
+                decision,
+                reason,
+            ),
+        )
+        conn.commit()
+        conn.close()
+
+        # 6. 최종 결과 묶어서 반환
         return {
-            "price": int(df["Close"].iloc[-1]),
-            "decision": ai_result.get("decision", "HOLD"),
-            "reason": ai_result.get("reason", "분석 중..."),
+            "ticker": target_ticker,
+            "price": current_price,
+            "decision": decision,
+            "reason": reason,
+            "news": display_news,
             "balance": get_mock_cash_balance(token),
-            "news": display_news,  # 이 값이 gui_app.py로 전달됩니다.
         }
+
     except Exception as e:
         return {"error": str(e)}
