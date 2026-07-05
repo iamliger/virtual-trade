@@ -1,4 +1,6 @@
 # main_logic.py (이름 변경 후 코드 전체 교체)
+from datetime import datetime  # <--- 여기도 추가해 주세요!
+
 import yfinance as yf
 
 from ai_brain import get_ai_investment_decision
@@ -32,12 +34,29 @@ def run_trading_cycle(token):
         recent_prices = df["Close"].tail(5).tolist()
         price_history_str = " -> ".join([f"{int(p):,}원" for p in recent_prices])
 
-        # 2. AI 판단
+        # 2. AI 판단 (기존 코드와 동일)
         ai_result = get_ai_investment_decision(
             TARGET_TICKER, current_price, price_history_str, news_headlines
         )
         decision = ai_result.get("decision")
         reason = ai_result.get("reason")
+
+        # [추가] AI 판단 결과 DB에 기록하기
+        import sqlite3
+
+        conn = sqlite3.connect("virtual_trade.db")
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO ai_log (log_date, ticker, decision, reason) VALUES (?, ?, ?, ?)",
+            (
+                datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                TARGET_TICKER,
+                decision,
+                reason,
+            ),
+        )
+        conn.commit()
+        conn.close()
 
         # 3. 매매 실행 (가상 계좌 반영)
         if decision == "BUY":
