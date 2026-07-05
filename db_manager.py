@@ -41,6 +41,12 @@ def create_tables():
     cursor.execute("""CREATE TABLE IF NOT EXISTS stock_master 
                       (ticker TEXT PRIMARY KEY, name TEXT)""")
 
+    # 목표 수익 기록 테이블 추가
+    cursor.execute(
+        """CREATE TABLE IF NOT EXISTS daily_goals 
+                      (date TEXT PRIMARY KEY, target_profit INTEGER, current_profit INTEGER)"""
+    )
+
     conn.commit()
     conn.close()
     print("✅ [DB] 테이블 설계 및 생성 완료")

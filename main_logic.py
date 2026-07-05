@@ -9,55 +9,56 @@ from kis_api import get_access_token, get_mock_cash_balance
 from trade_manager import execute_scalping_buy, execute_scalping_sell
 
 
+def setup_db():
+    """프로그램 시작 전 필요한 테이블을 자동으로 생성"""
+    conn = sqlite3.connect("virtual_trade.db")
+    cursor = conn.cursor()
+    cursor.execute(
+        """CREATE TABLE IF NOT EXISTS stock_master (ticker TEXT PRIMARY KEY, name TEXT)"""
+    )
+    cursor.execute(
+        """CREATE TABLE IF NOT EXISTS daily_goals (date TEXT PRIMARY KEY, target_profit INTEGER, current_profit INTEGER)"""
+    )
+    conn.commit()
+    conn.close()
+
+
 def get_dynamic_stocks():
-    """시장에서 거래량과 뉴스가 활발한 종목들을 동적으로 스캔하여 반환"""
-    # 💡 실제로는 크롤링이 필요하지만, 안정성을 위해 우량주 20개 중 뉴스가 있는 것을 선별
+    """뉴스가 있고 거래가 활발한 1~5만원대 소액 단타용 종목 발굴"""
+    setup_db()
+    # 단타에 적합한 활동성 종목 풀
     pool = [
-        "005930.KS",
-        "000660.KS",
         "042660.KS",
         "034020.KS",
-        "035720.KS",
         "011200.KS",
         "064350.KS",
         "028300.KQ",
-        "035420.KS",
-        "005380.KS",
-        "000270.KS",
-        "012450.KS",
-        "009150.KS",
-        "066570.KS",
+        "091990.KQ",
+        "102710.KS",
         "003670.KS",
-        "032830.KS",
-        "010950.KS",
-        "000810.KS",
-        "033780.KS",
-        "000100.KS",
+        "035720.KS",
     ]
 
     found_stocks = []
     conn = sqlite3.connect("virtual_trade.db")
     cursor = conn.cursor()
 
-    print("🛰️ [시장 스캐닝] 뉴스 호재 종목 발굴 중...")
     for ticker in pool:
         stock = yf.Ticker(ticker)
-        # 뉴스가 있는 종목을 우선적으로 수집
-        if stock.news:
-            name = stock.info.get("shortName", ticker)
-            found_stocks.append(f"{name} ({ticker})")
-            # DB에 종목 이름 저장
-            cursor.execute(
-                "INSERT OR REPLACE INTO stock_master (ticker, name) VALUES (?, ?)",
-                (ticker, name),
-            )
+        name = stock.info.get("shortName", ticker)
+        # DB에 이름 저장
+        cursor.execute(
+            "INSERT OR REPLACE INTO stock_master (ticker, name) VALUES (?, ?)",
+            (ticker, name),
+        )
+        found_stocks.append(f"{name} ({ticker})")
 
     conn.commit()
     conn.close()
     return found_stocks
 
 
-def run_trading_cycle(token, target_ticker):
+def run_trading_cycle(token, target_ticker, target_profit_goal):
     try:
         stock = yf.Ticker(target_ticker)
         df = stock.history(period="1d", interval="1m")
@@ -67,7 +68,7 @@ def run_trading_cycle(token, target_ticker):
         current_price = int(df["Close"].iloc[-1])
         prev_price = int(df["Close"].iloc[-2]) if len(df) > 1 else current_price
 
-        # 실시간 가격 변동 화살표 계산
+        # 실시간 변동 시각화 데이터
         trend_arrow = (
             "▲"
             if current_price > prev_price
@@ -75,23 +76,32 @@ def run_trading_cycle(token, target_ticker):
         )
         change_pct = ((current_price - prev_price) / prev_price) * 100
 
-        # AI 뉴스 분석 수행
+        # AI 분석
         news_data = stock.news[:3]
         news_headlines = [n.get("title") for n in news_data if n.get("title")]
-
         ai_result = get_ai_investment_decision(
             target_ticker, current_price, "Trend...", news_headlines
         )
 
-        # (매수/매도 로직 및 DB 기록 부분은 기존과 동일하게 유지)
-        # ...
+        decision = ai_result.get("decision", "HOLD")
+
+        # [핵심] 10~50만원 소액 단타 로직
+        # 한 번 매수 시 약 30만원 정도로 설정
+        buy_quantity = 300000 // current_price
+        if buy_quantity < 1:
+            buy_quantity = 1
+
+        if decision == "BUY":
+            execute_scalping_buy(target_ticker, current_price, buy_quantity)
+        elif decision == "SELL":
+            execute_scalping_sell(target_ticker, current_price, buy_quantity)
 
         return {
-            "ticker": target_ticker,
+            "ticker_name": target_ticker,  # 이후 GUI에서 이름으로 매칭
             "price": current_price,
             "arrow": trend_arrow,
             "change_pct": change_pct,
-            "decision": ai_result.get("decision", "HOLD"),
+            "decision": decision,
             "reason": ai_result.get("reason", "분석 중"),
             "news": (
                 "\n".join([f"• {h}" for h in news_headlines])
