@@ -22,8 +22,17 @@ def run_trading_cycle(token):
         stock = yf.Ticker(TARGET_TICKER)
         df = stock.history(period="1d", interval="1m")
 
+        # [디버깅] 뉴스 수집 시도 로그
         news_data = stock.news[:3] if stock.news else []
-        news_headlines = [item.get("title") for item in news_data if item.get("title")]
+        print(f"📰 [디버깅] 수집된 뉴스 개수: {len(news_data)}개")
+
+        news_headlines = []
+        for item in news_data:
+            t = item.get("title")
+            if t:
+                news_headlines.append(t)
+                print(f"   - 뉴스 제목: {t[:30]}...")  # 뉴스 제목 출력
+
         if not news_headlines:
             news_headlines = ["최근 관련 뉴스가 없습니다."]
 
