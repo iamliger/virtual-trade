@@ -36,9 +36,19 @@ def main():
             stock = yf.Ticker(TARGET_TICKER)
             df = stock.history(period="1d", interval="1m")
 
-            # [추가] 뉴스 헤드라인 가져오기 (최신 3개만)
-            news_data = stock.news[:3]
-            news_headlines = [item["title"] for item in news_data]
+            # [수정] 뉴스 가져오기 - 데이터가 없을 경우를 대비해 안전하게 추출
+            news_data = stock.news[:3] if stock.news else []
+            news_headlines = []
+
+            for item in news_data:
+                # 'title'이라는 글자가 있는지 확인하고 없으면 넘어가기
+                title = item.get("title")
+                if title:
+                    news_headlines.append(title)
+
+            # 만약 뉴스가 아예 없다면 기본 메시지 출력
+            if not news_headlines:
+                news_headlines = ["최근 관련 뉴스가 없습니다."]
 
             if df.empty:
                 print("⚠️ 시장 데이터 대기 중...")
