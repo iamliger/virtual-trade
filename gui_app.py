@@ -80,27 +80,36 @@ class TradingApp(ctk.CTk):
         self.start_button.pack(pady=10)
 
     def update_ui(self, data):
+        # 1. AI 리포트 창 업데이트
         self.ai_text.configure(state="normal")
         self.ai_text.delete("1.0", "end")
-        content = (
-            f"🎯 분석 대상: {self.ticker_menu.get()}\n결정: [{data['decision']}]\n"
-        )
-        content += (
-            f"━━━━━━━━━━━━━━━━━━\n💡 이유: {data['reason']}\n\n📰 뉴스:\n{data['news']}"
-        )
+        content = f"🎯 분석 대상: {self.ticker_menu.get()}\n"
+        content += f"📡 AI 판단: [{data.get('decision', 'HOLD')}]\n"
+        content += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        content += f"💡 분석 근거 (100% 한글): {data.get('reason', '분석 중')}\n\n"
+        content += f"📰 수집된 실시간 뉴스:\n{data.get('news', '뉴스 없음')}"
         self.ai_text.insert("1.0", content)
         self.ai_text.configure(state="disabled")
 
-        self.price_label.configure(text=f"{data['price']:,}원")
-        self.balance_label.configure(text=f"예수금: {data['balance']:,}원")
+        # 2. 시세 및 잔고
+        self.price_label.configure(text=f"{data.get('price', 0):,}원")
+        self.balance_label.configure(text=f"예수금: {data.get('balance', 0):,}원")
 
-        # DB 히스토리 갱신
-        history = get_db_history()
+        # 3. 💡 DB에서 실제 저장된 내역을 실시간으로 다시 긁어와서 히스토리에 표시
+        self.update_db_display()
+
+    def update_db_display(self):
+        """DB에 저장된 실제 매매 내역을 하단 히스토리에 시각화"""
+        history = get_db_history()  # main_logic에 있는 함수 호출
         self.history_text.delete("1.0", "end")
-        for h in history:
+        self.history_text.insert("end", "--- [최근 DB 매매 및 정산 기록] ---\n")
+        for row in history:
+            # row[0]:날짜, row[1]:종목, row[2]:타입, row[3]:가격, row[4]:수익
             self.history_text.insert(
-                "end", f"[{h[0]}] {h[1]} | {h[2]} | 가격:{h[3]:,} | 손익:{h[4]:,}\n"
+                "end",
+                f"📅 {row[0]} | {row[1]} | {row[2]} | 가격:{row[3]:,} | 손익:{row[4]:,}\n",
             )
+        self.history_text.see("end")
 
     def start_trading_thread(self):
         self.start_button.configure(state="disabled")

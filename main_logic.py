@@ -25,17 +25,23 @@ def predict_best_stock():
     for name, ticker in SCAN_POOL.items():
         stock = yf.Ticker(ticker)
         news = stock.news[:1]
-        headline = news[0].get("title", "뉴스없음") if news else "뉴스없음"
+        headline = news[0].get("title", "특이사항 없음") if news else "특이사항 없음"
         summary += f"- {name}: {headline}\n"
 
-    prompt = f"아래 시장 뉴스를 분석해서 오늘 가장 유망한 종목 1개와 섹터 분석을 한국어로 상세히 보고해줘:\n{summary}"
+    # AI에게 한글 리포트를 강제하는 프롬프트
+    prompt = (
+        f"너는 여의도 최고의 전략가이다. 아래 뉴스 데이터를 분석해서 "
+        f"오늘 가장 유망한 섹터와 그 이유, 그리고 원픽 종목을 '한국어'로만 상세히 보고하라. "
+        f"절대 영어를 섞지 말고, 한글로만 친절하고 논리적으로 설명해라.\n\n데이터:\n{summary}"
+    )
+
     try:
         response = ollama.chat(
             model="llama3", messages=[{"role": "user", "content": prompt}]
         )
         return response["message"]["content"]
     except:
-        return "예측 엔진 오류"
+        return "종목 예측 엔진을 불러올 수 없습니다."
 
 
 def get_dynamic_stocks():
