@@ -184,6 +184,13 @@ git push origin main
 - **변수 정의(Undefined Variable)**: 함수 선언부와 호출부의 매개변수 이름이 일치해야 하며, 특히 스레드 간 데이터 이동 시 변수 생명 주기를 주의해야 함.
 - **스레드 안전(Thread-Safe)**: `threading`을 사용해 백엔드 로직을 돌릴 경우, 화면 갱신은 반드시 메인 스레드(`self.after`)를 통해 수행하여 런타임 충돌 방지.
 
+## 21. 🇰🇷 AI 한글 응답 및 인코딩 관리
+- **문제**: Llama3가 JSON 형식에 집중할 때 한글 유니코드를 비정상적으로 출력하는 현상 발생.
+- **해결**: 
+    1. 시스템 프롬프트에 'Natural Korean'과 'Senior Analyst' 역할을 명시.
+    2. `temperature`를 0.2로 낮춰 생성의 일관성 확보.
+    3. 코드 단에서 `decision`과 `recommendation` 키 이름을 모두 수용하도록 방어 로직 구축.
+
 
 ### ② 증권사 예수금 0원
 - **현상**: `test_server.py`나 `main.py` 실행 시 예수금이 0원으로 나옴.

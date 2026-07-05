@@ -82,19 +82,27 @@ class TradingApp(ctk.CTk):
 
     # 💡 [핵심] Pylance 에러 해결: result라는 매개변수를 확실히 받도록 정의함
     def update_ui(self, result_data):
-        """데이터를 받아 화면의 모든 요소를 갱신합니다."""
-        # 1. AI 리포트 및 뉴스 업데이트
+        self.ai_text.configure(state="normal")
         self.ai_text.delete("1.0", "end")
-        content = f"결정: [{result_data.get('decision', 'HOLD')}]\n"
-        content += f"----------------------------------\n"
-        content += (
-            f"💡 AI 분석 근거:\n{result_data.get('reason', '분석 중입니다...')}\n\n"
-        )
-        content += f"----------------------------------\n"
-        content += f"📰 최신 뉴스:\n{result_data.get('news', '뉴스가 없습니다.')}"
-        self.ai_text.insert("1.0", content)
 
-        # 2. 가격 및 잔고 업데이트
+        # decision 값 출력
+        decision = result_data.get("decision", "HOLD")
+        content = f"최종 결정: [{decision}]\n"
+        content += f"----------------------------------\n"
+
+        # reason 값 출력 (한글 깨짐 방지 위해 직접 접근)
+        reason = result_data.get("reason", "분석 중...")
+        content += f"💡 분석 근거:\n{reason}\n\n"
+
+        content += f"----------------------------------\n"
+        # news 데이터 확인
+        news = result_data.get("news", "최근 뉴스가 없습니다.")
+        content += f"📰 최신 뉴스:\n{news}"
+
+        self.ai_text.insert("1.0", content)
+        self.ai_text.configure(state="disabled")
+
+        # 가격 및 잔고 업데이트
         self.price_label.configure(text=f"현재가: {result_data.get('price', 0):,}원")
         self.balance_label.configure(
             text=f"가상 예수금: {result_data.get('balance', 0):,}원"
