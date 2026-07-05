@@ -37,6 +37,10 @@ def create_tables():
                       (id INTEGER PRIMARY KEY AUTOINCREMENT, log_date TEXT, 
                        ticker TEXT, decision TEXT, reason TEXT)""")
 
+    # 5. 종목 마스터 테이블 (코드와 이름을 매칭)
+    cursor.execute("""CREATE TABLE IF NOT EXISTS stock_master 
+                      (ticker TEXT PRIMARY KEY, name TEXT)""")
+
     conn.commit()
     conn.close()
     print("✅ [DB] 테이블 설계 및 생성 완료")

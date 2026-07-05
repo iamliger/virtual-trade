@@ -9,27 +9,21 @@ import ollama
 def get_ai_investment_decision(
     ticker, current_price, price_history_str, news_headlines
 ):
-    # 1. 시스템 프롬프트를 한국어 전문가답게 대개편
+    # 한글 전용 페르소나 주입 (영어를 쓸 경우 처벌하겠다는 수준의 강한 명령)
     system_instruction = (
-        "You are a 'Scalping Master' in the Korean Stock Market. "
-        "Your goal is to make a small profit (1-3%) within a short time. "
-        "Analyze the price trend and news headlines very aggressively. "
-        "If the news is positive and the price is rising, DECIDE BUY. "
-        "If there's any sign of a drop, DECIDE SELL or HOLD. "
-        "Your reason must be in Korean and explain WHY this is good for SCALPING."
+        "너는 대한민국 최고의 전업 투자자이자 뉴스 분석가이다. "
+        "모든 답변은 반드시 '한국어'로만 작성해야 한다. 영어를 섞지 마라. "
+        "분석 이유(reason)에는 반드시 해당 뉴스가 주가에 미치는 영향을 포함해야 한다. "
+        'JSON 형식만 출력하라: {"decision": "BUY/SELL/HOLD", "reason": "한국어로 작성된 상세 분석"}'
     )
 
     news_context = (
-        "\n".join(news_headlines)
-        if news_headlines
-        else "호재나 악재 뉴스가 현재 없습니다."
+        "\n".join(news_headlines) if news_headlines else "현재 관련 뉴스 없음"
     )
     user_message = (
-        f"종목: {ticker}\n"
-        f"현재가: {current_price}원\n"
-        f"최근 추세: {price_history_str}\n"
-        f"관련 뉴스: {news_context}\n"
-        "위 데이터를 바탕으로 분석 결과를 JSON으로만 출력하세요."
+        f"종목: {ticker}, 현재가: {current_price}원, 추세: {price_history_str}\n"
+        f"최신 뉴스:\n{news_context}\n"
+        "이 데이터를 분석해서 오늘 단타 수익이 가능할지 판단해줘."
     )
 
     try:
@@ -39,27 +33,18 @@ def get_ai_investment_decision(
                 {"role": "system", "content": system_instruction},
                 {"role": "user", "content": user_message},
             ],
-            options={"temperature": 0.2},  # 0.2로 낮춰서 더 정확하고 일관된 답변을 유도
+            options={"temperature": 0.2},
         )
 
         ai_reply = response.get("message", {}).get("content", "").strip()
-        print(f"📥 [AI 원문 응답]:\n{ai_reply}")
 
-        # JSON만 추출 (정규표현식)
+        # JSON만 정교하게 추출 (정규표현식)
         json_match = re.search(r"\{.*\}", ai_reply, re.DOTALL)
         if json_match:
-            clean_json = json_match.group()
-            result = json.loads(clean_json)
+            result = json.loads(json_match.group())
+            # 키 이름이 영문이어도 값은 한글인지 재검증 (영어가 섞여있으면 강제 번역은 어려우니 재시도 권장)
+            return result
 
-            # 💡 [보강] AI가 키 이름을 잘못 썼을 경우를 대비한 방어 코드
-            final_decision = (
-                result.get("decision") or result.get("recommendation") or "HOLD"
-            )
-            final_reason = result.get("reason", "분석 내용을 생성하지 못했습니다.")
-
-            return {"decision": final_decision, "reason": final_reason}
-
-        return {"decision": "HOLD", "reason": "AI 답변 형식 오류로 인한 대기"}
-
-    except Exception as e:
-        return {"decision": "HOLD", "reason": f"분석 엔진 오류: {str(e)}"}
+        return {"decision": "HOLD", "reason": "AI 답변 형식 오류"}
+    except Exception:
+        return {"decision": "HOLD", "reason": "분석 엔진 일시 오류"}
