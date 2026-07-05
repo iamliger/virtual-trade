@@ -1,7 +1,9 @@
 import time
+
 import yfinance as yf
-from kis_api import get_access_token, get_mock_cash_balance
+
 from ai_brain import get_ai_investment_decision
+from kis_api import get_access_token, get_mock_cash_balance
 from trade_manager import execute_scalping_buy, execute_scalping_sell
 
 # [설정] 투자할 종목과 한 번에 살 수량
@@ -30,14 +32,16 @@ def main():
         try:
             print(f"\n🔍 [{time.strftime('%H:%M:%S')}] 시장 스캐닝 시작...")
 
-            # 3. 실시간 주가 데이터 가져오기 (yfinance)
+            # 3. 실시간 주가 및 뉴스 데이터 가져오기
             stock = yf.Ticker(TARGET_TICKER)
             df = stock.history(period="1d", interval="1m")
 
+            # [추가] 뉴스 헤드라인 가져오기 (최신 3개만)
+            news_data = stock.news[:3]
+            news_headlines = [item["title"] for item in news_data]
+
             if df.empty:
-                print(
-                    "⚠️ [대기] 현재 시장 데이터를 가져올 수 없습니다. (장 마감 또는 휴장)"
-                )
+                print("⚠️ 시장 데이터 대기 중...")
                 time.sleep(60)
                 continue
 
@@ -45,13 +49,11 @@ def main():
             recent_prices = df["Close"].tail(5).tolist()
             price_history_str = " -> ".join([f"{int(p):,}원" for p in recent_prices])
 
-            print(f"📈 [현재가] {TARGET_TICKER}: {current_price:,}원")
-            print(f"📊 [흐름] {price_history_str}")
-
-            # 4. AI 브레인에게 판단 요청
+            # 4. AI 브레인에게 판단 요청 (뉴스 전달 추가)
             ai_result = get_ai_investment_decision(
-                TARGET_TICKER, current_price, price_history_str
+                TARGET_TICKER, current_price, price_history_str, news_headlines
             )
+
             decision = ai_result.get("decision")
             reason = ai_result.get("reason")
 
