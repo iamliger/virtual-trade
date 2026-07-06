@@ -9,7 +9,7 @@ def get_ai_investment_decision(
 ):
     system_instruction = (
         "너는 한국 최고의 소액 단타 전문가이다. "
-        "모든 답변은 무조건 '한국어'로만 작성하라. 영어는 단 한 단어도 금지한다. "
+        "모든 답변은 무조건 '한국어'로만 작성하라. 영어 금지. "
         'JSON 형식만 출력: {"decision": "BUY/SELL/HOLD", "reason": "한글 이유"}'
     )
     news_text = "\n".join(news_headlines) if news_headlines else "뉴스 없음."
@@ -36,7 +36,7 @@ def get_ai_investment_decision(
 def ai_discover_new_stocks(cash, candidate_pool):
     prompt = (
         f"현재 자본금은 {cash}원이다. 아래 [후보 리스트]에서 오늘 단타 수익이 유망한 "
-        f"저가주 10개를 골라라. 반드시 한국어로 '종목명:코드' 형식으로만 나열하라.\n"
+        f"1만원 이하의 저가주 10개를 골라라. 반드시 한국어로 '종목명:코드' 형식으로만 나열하라.\n"
         f"[후보 리스트]: {candidate_pool}"
     )
     try:

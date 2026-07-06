@@ -9,14 +9,13 @@ from db_manager import get_statistics
 from kis_api import get_access_token, get_mock_cash_balance
 from trade_manager import execute_scalping_buy, execute_scalping_sell
 
-# 유효하지 않은 종목(010600.KS 등)을 제거한 클린 리스트
+# 404 에러 종목(017040.KS 등)을 제외한 신뢰 리스트
 CLEAN_POOL = [
     "HMM:011200.KS",
     "대한해운:005880.KS",
     "미래산업:025560.KS",
     "대원전선:006340.KS",
     "우리기술:032820.KQ",
-    "광명전기:017040.KS",
     "팬오션:028670.KS",
     "삼성중공업:010140.KS",
     "이구산업:025820.KS",
@@ -31,7 +30,6 @@ def refresh_stock_pool_by_capital():
     cash = conn.execute("SELECT cash FROM account").fetchone()[0]
     conn.close()
 
-    print(f"🛰️ [AI 발굴] 자본금 {cash:,}원 맞춤형 스캔...")
     ai_raw = ai_discover_new_stocks(cash, ",".join(CLEAN_POOL))
     discovered = []
     conn = sqlite3.connect("virtual_trade.db")
@@ -43,12 +41,11 @@ def refresh_stock_pool_by_capital():
             try:
                 name, ticker = line.split(":")[-2:]
                 ticker = ticker.strip()
-                # 가격 검증 및 필터링 완화
                 stock = yf.Ticker(ticker)
                 hist = stock.history(period="1d")
                 if not hist.empty:
                     price = int(hist["Close"].iloc[-1])
-                    if price <= cash:  # 자산보다 싸면 모두 허용 (오판 수정)
+                    if price <= cash:
                         cursor.execute(
                             "INSERT OR REPLACE INTO stock_master VALUES (?, ?, ?)",
                             (ticker, name, price),
@@ -66,7 +63,7 @@ def predict_market_view():
     stocks = conn.execute("SELECT name, ticker FROM stock_master LIMIT 5").fetchall()
     conn.close()
     summary = "\n".join([f"- {s[0]}({s[1]})" for s in stocks])
-    prompt = f"너는 한국 수석 전략가이다. 반드시 한글로만 대답하라. 영어 금지. 시작은 '안녕하세요, 오늘 전략입니다.'라고 하라.\n대상:\n{summary}"
+    prompt = f"너는 한국 수석 전략가이다. 반드시 한글로만 대답하라. 시작은 '[시장분석]'으로 하라.\n대상:\n{summary}"
     try:
         res = ollama.chat(
             model="llama3",
@@ -100,7 +97,6 @@ def run_trading_cycle(token, target_ticker, daily_goal):
         conn = sqlite3.connect("virtual_trade.db")
         db_cash = conn.execute("SELECT cash FROM account").fetchone()[0]
         conn.close()
-
         if today_p >= daily_goal:
             return {
                 "status": "GOAL_REACHED",
@@ -135,8 +131,8 @@ def run_trading_cycle(token, target_ticker, daily_goal):
         )
         ai_res = get_ai_investment_decision(target_ticker, price, history_str, [])
         decision = ai_res.get("decision", "HOLD")
-
         qty = db_cash // (price + (price * 0.001))
+
         trade_msg = "관망"
         if decision == "BUY" and qty > 0:
             success, msg = execute_scalping_buy(target_ticker, price, qty)

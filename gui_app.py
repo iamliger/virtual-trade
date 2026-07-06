@@ -26,7 +26,7 @@ ctk.set_appearance_mode("dark")
 class TradingApp(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.title("AI 실전 지능형 단타 스테이션 v4.5")
+        self.title("AI 실전 지능형 단타 스테이션 v5.0")
         self.geometry("1100x850")
         create_tables()
         self.is_running = False
@@ -54,13 +54,12 @@ class TradingApp(ctk.CTk):
         )
         self.status_signal.pack(side="right", padx=20)
 
+        # [변경] 히스토리를 절대 지우지 않는 텍스트 박스
         self.predict_box = ctk.CTkTextbox(
-            self, height=80, font=("Malgun Gothic", 12), text_color="#FFD700"
+            self, height=100, font=("Malgun Gothic", 12), text_color="#FFD700"
         )
         self.predict_box.pack(fill="x", padx=15, pady=5)
-        self.predict_box.insert(
-            "0.0", "🚀 자본금을 설정하고 가동하세요. 저가주 위주로 세팅됩니다."
-        )
+        self.predict_box.insert("0.0", "🚀 시스템 기록 시작\n")
 
         self.mid_frame = ctk.CTkFrame(self)
         self.mid_frame.pack(fill="both", expand=True, padx=15, pady=5)
@@ -112,7 +111,7 @@ class TradingApp(ctk.CTk):
         self.db_balance_label.pack(pady=5)
 
         self.ticker_menu = ctk.CTkOptionMenu(
-            self.stat_panel, values=["잔고설정을 먼저 하세요"], width=200
+            self.stat_panel, values=["잔고설정 필요"], width=200
         )
         self.ticker_menu.pack(pady=5)
 
@@ -150,6 +149,12 @@ class TradingApp(ctk.CTk):
         self.update_clock()
         self.refresh_ui_from_db()
 
+    def add_predict_log(self, text):
+        """[신규] 상단 리포트 박스에 기록 누적 및 자동스크롤"""
+        now = datetime.now().strftime("[%H:%M:%S]")
+        self.predict_box.insert("end", f"{now} {text}\n")
+        self.predict_box.see("end")
+
     def toggle_engine(self):
         if not self.is_running:
             self.is_running = True
@@ -176,14 +181,21 @@ class TradingApp(ctk.CTk):
                 self.after(0, lambda: self.ticker_menu.configure(values=new_list))
                 self.after(0, lambda: self.ticker_menu.set(new_list[0]))
                 self.after(0, self.refresh_ui_from_db)
-            except Exception as e:
-                print(e)
+                self.after(
+                    0,
+                    lambda: self.add_predict_log(
+                        f"💰 시드머니 {amt:,}원 설정 및 종목 갱신"
+                    ),
+                )
+            except:
+                pass
 
         threading.Thread(target=work, daemon=True).start()
 
     def confirm_reset(self):
         reset_db_completely()
         self.refresh_ui_from_db()
+        self.add_predict_log("☢️ 시스템 전체 리셋 완료")
 
     def refresh_ui_from_db(self):
         conn = sqlite3.connect("virtual_trade.db")
@@ -196,17 +208,14 @@ class TradingApp(ctk.CTk):
                 "end",
                 f"{h[0]} | {h[1]} | {h[2]} | {int(h[3]):,}원 | {h[4]}주 | {int(h[5]):,}원\n",
             )
-
         hold_data = get_db_holdings()
         self.holdings_box.delete("1.0", "end")
         for hold in hold_data:
-            # 💡 [핵심 해결] h[2], h[3], h[4]를 강제로 int() 변환하여 ValueError 방지
             self.holdings_box.insert(
                 "end",
                 f"{hold[0]} | {hold[1]}주 | 평단:{int(hold[2]):,} | 현재:{int(hold[3]):,} | 손익:{int(hold[4]):,} ({hold[5]:.2f}%)\n",
             )
-
-        t, w, m = get_statistics()
+        t, _, _ = get_statistics()
         self.today_profit_label.configure(text=f"오늘 수익: {int(t):,}원")
         cash = conn.execute("SELECT cash FROM account").fetchone()[0]
         conn.close()
@@ -216,6 +225,7 @@ class TradingApp(ctk.CTk):
         if data["status"] == "GOAL_REACHED":
             self.is_running = False
             self.btn_control.configure(text="🏆 목표 달성 완료", state="disabled")
+            self.add_predict_log(f"🎊 목표 달성! 오늘 수익: {data['today_profit']:,}원")
             return
         if data["status"] == "ACTIVE":
             self.price_label.configure(text=f"{int(data['price']):,}원")
@@ -227,16 +237,13 @@ class TradingApp(ctk.CTk):
             )
             self.ai_report_text.configure(state="disabled")
             self.refresh_ui_from_db()
+            # 매매가 발생했거나 특이점 있을 때 상단에 기록
+            if "매수" in data["trade_status"] or "매도" in data["trade_status"]:
+                self.add_predict_log(f"📢 {data['ticker']} {data['trade_status']}")
 
     def run_process(self):
         view = predict_market_view()
-        self.after(
-            0,
-            lambda: (
-                self.predict_box.delete("1.0", "end"),
-                self.predict_box.insert("1.0", f"🚀 AI 리포트: {view}"),
-            ),
-        )
+        self.after(0, lambda: self.add_predict_log(f"🚀 AI 분석: {view}"))
         token = get_access_token()
         while self.is_running:
             ticker = self.ticker_menu.get().split("(")[1].replace(")", "")
