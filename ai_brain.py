@@ -8,7 +8,7 @@ def get_ai_investment_decision(
     ticker, current_price, price_history_str, news_headlines
 ):
     """
-    로컬 AI(Llama3)에게 한국어 전문가의 페르소나를 부여하여 판단 도출
+    로컬 AI(Llama3)에게 한국어 전문가 페르소나를 부여하여 단타 판단 도출
     """
     system_instruction = (
         "너는 대한민국 최고의 주식 단타(Scalping) 전문가이다. 아래 규칙을 엄격히 지켜라.\n"
@@ -19,7 +19,7 @@ def get_ai_investment_decision(
     )
 
     news_text = (
-        "\n".join(news_headlines) if news_headlines else "실시간 호재/악재 뉴스 없음."
+        "\n".join(news_headlines) if news_headlines else "실시간 관련 뉴스 없음."
     )
     user_message = (
         f"종목: {ticker}, 현재가: {current_price}원\n"
@@ -39,10 +39,12 @@ def get_ai_investment_decision(
         )
         ai_reply = response.get("message", {}).get("content", "").strip()
 
-        # 정규표현식으로 JSON만 추출하여 파싱 오류 방지
         json_match = re.search(r"\{.*\}", ai_reply, re.DOTALL)
         if json_match:
             return json.loads(json_match.group())
-        return {"decision": "HOLD", "reason": "AI 응답 형식 불일치로 인한 안전 관망."}
+        return {
+            "decision": "HOLD",
+            "reason": "AI 응답 형식이 분석에 적합하지 않아 관망 처리합니다.",
+        }
     except Exception as e:
-        return {"decision": "HOLD", "reason": f"AI 분석 엔진 오류: {str(e)}"}
+        return {"decision": "HOLD", "reason": f"AI 분석 엔진 일시 오류: {str(e)}"}

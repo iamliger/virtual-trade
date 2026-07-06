@@ -32,7 +32,7 @@ class TradingApp(ctk.CTk):
             self.top_frame, height=120, font=("Malgun Gothic", 13), text_color="#FFD700"
         )
         self.predict_box.pack(fill="x", padx=10, pady=10)
-        self.predict_box.insert("0.0", "🚀 AI 시장 예측 엔진 가동 준비 완료...")
+        self.predict_box.insert("0.0", "🚀 AI 시장 분석 및 예측 리포트 대기 중...")
 
         # [2] 중앙 레이아웃
         self.mid_frame = ctk.CTkFrame(self)
@@ -48,7 +48,7 @@ class TradingApp(ctk.CTk):
         self.stat_panel = ctk.CTkFrame(self.mid_frame, width=450, fg_color="#212121")
         self.stat_panel.pack(side="right", fill="both", expand=False, padx=5, pady=5)
 
-        # 예수금 수동 설정 영역
+        # 시드머니 설정 (width, height 속성 사용으로 수정됨)
         ctk.CTkLabel(
             self.stat_panel, text="💰 시드머니 설정 (원)", font=("Malgun Gothic", 12)
         ).pack(pady=(10, 0))
@@ -56,7 +56,11 @@ class TradingApp(ctk.CTk):
         self.seed_input.insert(0, "1000000")
         self.seed_input.pack(pady=5)
         self.btn_set_seed = ctk.CTkButton(
-            self.stat_panel, text="잔고 업데이트", size=(100, 25), command=self.set_seed
+            self.stat_panel,
+            text="잔고 업데이트",
+            width=100,
+            height=25,
+            command=self.set_seed,
         )
         self.btn_set_seed.pack(pady=5)
 
@@ -70,7 +74,6 @@ class TradingApp(ctk.CTk):
         self.goal_input.insert(0, "5000")
         self.goal_input.pack(pady=5)
 
-        # 실시간 통계 정보
         self.price_label = ctk.CTkLabel(
             self.stat_panel,
             text="--원",
@@ -155,10 +158,7 @@ class TradingApp(ctk.CTk):
                 text=f"🎯 목표 달성: {data['today_profit']:,}원", text_color="yellow"
             )
             self.predict_box.insert(
-                "end", "\n🎊 축하합니다! 오늘의 목표 수익을 달성하여 매매를 종료합니다."
-            )
-            self.btn_start.configure(
-                state="normal", text="목표 달성 종료", fg_color="gray"
+                "end", "\n🎊 오늘의 목표 수익을 달성했습니다. 시스템을 종료합니다."
             )
             return
 
@@ -176,9 +176,9 @@ class TradingApp(ctk.CTk):
 
             self.ai_report_text.configure(state="normal")
             self.ai_report_text.delete("1.0", "end")
-            report = f"🎯 분석 대상: {data['ticker']}\n결정: [{data['decision']}]\n상태: {data['trade_status']}\n"
+            report = f"🎯 분석 대상: {self.ticker_menu.get()}\n결정: [{data['decision']}]\n상태: {data['trade_status']}\n"
             report += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            report += f"💡 분석근거: {data['reason']}\n\n📰 뉴스:\n{data['news']}"
+            report += f"💡 분석근거: {data['reason']}\n\n📰 관련 뉴스:\n{data['news']}"
             self.ai_report_text.insert("1.0", report)
             self.ai_report_text.configure(state="disabled")
 
@@ -217,9 +217,12 @@ class TradingApp(ctk.CTk):
         token = get_access_token()
         while True:
             ticker = self.ticker_menu.get().split("(")[1].replace(")", "")
-            goal = int(self.goal_input.get())
-            result = run_trading_cycle(token, ticker, goal)
+            try:
+                goal = int(self.goal_input.get())
+            except:
+                goal = 5000
 
+            result = run_trading_cycle(token, ticker, goal)
             if "error" not in result:
                 self.after(0, lambda r=result: self.update_ui(r))
                 if result.get("status") == "GOAL_REACHED":

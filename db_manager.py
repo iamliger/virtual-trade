@@ -30,7 +30,7 @@ def create_tables():
         """CREATE TABLE IF NOT EXISTS stock_master (ticker TEXT PRIMARY KEY, name TEXT)"""
     )
 
-    # 초기 실행 시 데이터가 없으면 100만원으로 시작 (현실적 시뮬레이션)
+    # 초기 실행 시 데이터가 없으면 100만원으로 시작
     cursor.execute("SELECT count(*) FROM account")
     if cursor.fetchone()[0] == 0:
         cursor.execute(
@@ -59,21 +59,21 @@ def get_statistics():
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
 
-    # 오늘 수익
+    # 오늘 수익 (한국 시간 기준)
     cursor.execute(
-        "SELECT SUM(profit) FROM trade_history WHERE date(trade_date) = date('now')"
+        "SELECT SUM(profit) FROM trade_history WHERE date(trade_date) = date('now', 'localtime')"
     )
     today = cursor.fetchone()[0] or 0
 
     # 주간 수익 (최근 7일)
     cursor.execute(
-        "SELECT SUM(profit) FROM trade_history WHERE date(trade_date) >= date('now', '-7 days')"
+        "SELECT SUM(profit) FROM trade_history WHERE date(trade_date) >= date('now', '-7 days', 'localtime')"
     )
     weekly = cursor.fetchone()[0] or 0
 
     # 월간 수익 (최근 30일)
     cursor.execute(
-        "SELECT SUM(profit) FROM trade_history WHERE date(trade_date) >= date('now', '-30 days')"
+        "SELECT SUM(profit) FROM trade_history WHERE date(trade_date) >= date('now', '-30 days', 'localtime')"
     )
     monthly = cursor.fetchone()[0] or 0
 
