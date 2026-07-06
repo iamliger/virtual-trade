@@ -23,7 +23,6 @@ class TradingApp(ctk.CTk):
         self.title("AI 로컬 가상 매매 시스템 v1.9 (Heartbeat Engine)")
         self.geometry("1200x1000")
 
-        # [1] 상태 배너
         self.status_frame = ctk.CTkFrame(self, fg_color="#1a1a1a", height=40)
         self.status_frame.pack(fill="x", padx=20, pady=5)
         self.clock_label = ctk.CTkLabel(
@@ -35,7 +34,6 @@ class TradingApp(ctk.CTk):
         )
         self.system_status.pack(side="right", padx=20)
 
-        # [2] AI 시장 예측 리포트 (한글 전용)
         self.predict_box = ctk.CTkTextbox(
             self,
             height=120,
@@ -45,10 +43,9 @@ class TradingApp(ctk.CTk):
         )
         self.predict_box.pack(fill="x", padx=20, pady=5)
         self.predict_box.insert(
-            "0.0", "🚀 분석 엔진을 기동하면 AI 시장 예측 리포트가 여기에 표시됩니다."
+            "0.0", "🚀 분석 엔진을 기동하면 AI 시장 예측 리포트가 표시됩니다."
         )
 
-        # [3] 프로그래스 바
         self.progress_bar = ctk.CTkProgressBar(self, width=900)
         self.progress_bar.set(0)
         self.progress_bar.pack(pady=10)
@@ -56,7 +53,6 @@ class TradingApp(ctk.CTk):
         self.main_container = ctk.CTkFrame(self)
         self.main_container.pack(fill="both", expand=True, padx=20, pady=5)
 
-        # [4] 왼쪽 패널 - 분석 리포트
         self.left_panel = ctk.CTkFrame(self.main_container)
         self.left_panel.pack(side="left", fill="both", expand=True, padx=10, pady=10)
         self.ai_report = ctk.CTkTextbox(
@@ -64,7 +60,6 @@ class TradingApp(ctk.CTk):
         )
         self.ai_report.pack(fill="both", expand=True, padx=10, pady=10)
 
-        # [5] 오른쪽 패널 - 설정 및 정보
         self.right_panel = ctk.CTkFrame(self.main_container, width=380)
         self.right_panel.pack(side="right", fill="both", expand=False, padx=10, pady=10)
 
@@ -95,7 +90,6 @@ class TradingApp(ctk.CTk):
         )
         self.balance_display.pack(pady=10)
 
-        # [6] 하단 - DB 히스토리 로그
         ctk.CTkLabel(
             self,
             text="📜 실시간 DB 매매 내역 및 시스템 로그",
@@ -143,37 +137,35 @@ class TradingApp(ctk.CTk):
 
     def update_display(self, data):
         if data["status"] == "WAITING":
-            self.system_status.configure(text="상태: 장 개시 대기 중")
+            self.system_status.configure(text="상태: 데이터 동기화 중")
             self.ai_report.configure(state="normal")
             self.ai_report.delete("1.0", "end")
-            self.ai_report.insert("1.0", f"😴 {data['msg']}")
+            self.ai_report.insert("1.0", f"🔄 {data['msg']}")
             self.ai_report.configure(state="disabled")
             return
 
-        self.system_status.configure(text=f"상태: {data['ticker']} 분석 중")
-        self.ai_report.configure(state="normal")
-        self.ai_report.delete("1.0", "end")
-        report_txt = f"대상: {data['ticker']}\n결정: {data['decision']}\n"
-        report_txt += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        report_txt += f"💡 분석근거: {data['reason']}\n\n"
-        report_txt += f"📰 최신뉴스: {data['news']}"
-        self.ai_report.insert("1.0", report_txt)
-        self.ai_report.configure(state="disabled")
+        if data["status"] == "ACTIVE":
+            self.system_status.configure(text=f"상태: {data['ticker']} 분석 중")
+            self.ai_report.configure(state="normal")
+            self.ai_report.delete("1.0", "end")
+            report_txt = f"대상: {data['ticker']}\n결정: {data['decision']}\n"
+            report_txt += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            report_txt += f"💡 분석근거: {data['reason']}\n\n"
+            report_txt += f"📰 최신뉴스: {data['news']}"
+            self.ai_report.insert("1.0", report_txt)
+            self.ai_report.configure(state="disabled")
 
-        self.price_display.configure(text=f"{data['price']:,}원")
-        self.balance_display.configure(text=f"예수금: {data['balance']:,}원")
+            self.price_display.configure(text=f"{data['price']:,}원")
+            self.balance_display.configure(text=f"예수금: {data['balance']:,}원")
 
-        if "성공" in data["trade_status"]:
-            self.add_log(
-                f"✅ DB 기록: {data['trade_status']} | 가격: {data['price']:,}"
-            )
-            self.refresh_db_view()
-        elif "실패" in data["trade_status"]:
-            self.add_log(f"❌ {data['trade_status']}")
+            if "성공" in data["trade_status"]:
+                self.add_log(
+                    f"✅ DB 기록: {data['trade_status']} | 가격: {data['price']:,}"
+                )
+                self.refresh_db_view()
 
     def start_engine(self):
         self.btn_start.configure(state="disabled", text="AI 엔진 구동 중...")
-        self.add_log("🚀 시스템 가동: AI 시장 예측 리포트를 먼저 생성합니다.")
         threading.Thread(target=self.run_initial_analysis, daemon=True).start()
 
     def run_initial_analysis(self):

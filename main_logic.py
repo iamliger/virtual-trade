@@ -61,7 +61,7 @@ def get_db_history():
 
 
 def predict_best_stock():
-    """AI 시장 예측 리포트 생성 (한글 봉인 강화)"""
+    """AI 시장 예측 리포트 생성"""
     summary = ""
     for name, ticker in SCAN_POOL.items():
         try:
@@ -74,7 +74,6 @@ def predict_best_stock():
         except:
             summary += f"- {name}: 데이터 지연 중\n"
 
-    # AI에게 '한국어'만 사용하도록 매우 강한 제약을 거는 프롬프트
     prompt = (
         "너는 한국의 펀드매니저이다. 아래 데이터를 분석해서 오늘 가장 유망한 종목 1개를 골라라.\n"
         "반드시 한국어로만 대답하고, 영어는 절대 쓰지 마라. 답변의 시작은 '오늘의 시장 분석 보고서:'로 시작하라.\n"
@@ -84,27 +83,36 @@ def predict_best_stock():
         response = ollama.chat(
             model="llama3", messages=[{"role": "user", "content": prompt}]
         )
-        reply = response["message"]["content"]
-        # 만약 영어가 섞여있다면 강제로 한글로 변환하는 등의 로직은 모델 성능에 의존하나,
-        # 프롬프트 강화가 가장 효과적임.
-        return reply
+        return response["message"]["content"]
     except Exception as e:
         return f"예측 엔진 오류 발생: {str(e)}"
 
 
 def run_trading_cycle(token, target_ticker, goal_amount):
+    """
+    1분 주기 매매 사이클 (yfinance 개장 초기 데이터 지연 대응)
+    """
     try:
         now = datetime.now()
         is_closing = now.hour == 15 and 20 <= now.minute <= 30
 
+        # yfinance 데이터 요청
         stock = yf.Ticker(target_ticker)
+        # 개장 초기에는 1m 데이터가 없을 수 있으므로 5m과 병행 시도
         df = stock.history(period="1d", interval="1m")
 
         if df.empty:
-            return {
-                "status": "WAITING",
-                "msg": "장이 열리기를 기다리고 있습니다. (09:00 개장)",
-            }
+            # 💡 개장 시간(09:00~15:30)인데 데이터가 없는 경우 -> API 지연
+            if 9 <= now.hour < 16:
+                return {
+                    "status": "WAITING",
+                    "msg": "증권사 서버에서 실시간 데이터를 동기화 중입니다. 잠시만 기다려주세요.",
+                }
+            else:
+                return {
+                    "status": "WAITING",
+                    "msg": "현재 장외 시간입니다. (09:00 개장 대기 중)",
+                }
 
         current_price = int(df["Close"].iloc[-1])
         recent_prices = df["Close"].tail(5).tolist()
@@ -122,7 +130,6 @@ def run_trading_cycle(token, target_ticker, goal_amount):
             decision = ai_res.get("decision", "HOLD")
             reason = ai_res.get("reason", "분석 중")
 
-        # 30만원 기준 매수 수량
         qty = 300000 // current_price
         if qty < 1:
             qty = 1
