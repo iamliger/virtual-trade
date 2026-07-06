@@ -23,17 +23,16 @@ SCAN_POOL = {
 
 
 def predict_best_stock():
-    """AI 시장 예측 리포트 (한글)"""
-    summary = "현재 주요 소식:\n"
+    summary = "현재 주요 동향:\n"
     for name, ticker in SCAN_POOL.items():
         try:
             stock = yf.Ticker(ticker)
             news = stock.news[:1]
-            title = news[0].get("title", "특이사항 없음") if news else "소식 없음"
+            title = news[0].get("title", "소식 없음") if news else "소식 없음"
             summary += f"- {name}: {title}\n"
         except:
             continue
-    prompt = f"너는 한국 최고의 주식 전략가이다. 아래 데이터를 분석해 오늘 단타 수익이 유망한 종목 1개를 골라 한글로 이유와 함께 보고하라. 영어는 절대 쓰지 마라.\n{summary}"
+    prompt = f"너는 한국 최고의 주식 전략가이다. 데이터를 분석해 오늘 단타 유망 종목 1개를 골라 한글로 보고하라. 영어 금지.\n{summary}"
     try:
         res = ollama.chat(
             model="llama3", messages=[{"role": "user", "content": prompt}]
@@ -43,22 +42,32 @@ def predict_best_stock():
         return "예측 엔진 연결 실패"
 
 
-def get_holdings():
-    """현재 보유 주식 현황 조회"""
+def get_holdings_with_valuation():
+    """보유 종목에 실시간 가격과 평가 손익을 추가하여 반환"""
     conn = sqlite3.connect("virtual_trade.db")
     cursor = conn.cursor()
     cursor.execute("SELECT ticker, quantity, avg_price FROM holdings")
     rows = cursor.fetchall()
     conn.close()
-    return rows
+
+    valued_holdings = []
+    for row in rows:
+        ticker, qty, avg_p = row
+        try:
+            curr_p = int(yf.Ticker(ticker).history(period="1d")["Close"].iloc[-1])
+            profit = (curr_p - avg_p) * qty
+            profit_rate = ((curr_p - avg_p) / avg_p) * 100
+            valued_holdings.append((ticker, qty, avg_p, curr_p, profit, profit_rate))
+        except:
+            valued_holdings.append((ticker, qty, avg_p, 0, 0, 0))
+    return valued_holdings
 
 
 def get_db_history():
-    """최근 15건 매매 히스토리 조회"""
     conn = sqlite3.connect("virtual_trade.db")
     cursor = conn.cursor()
     cursor.execute(
-        "SELECT trade_date, ticker, type, price, profit FROM trade_history ORDER BY id DESC LIMIT 15"
+        "SELECT trade_date, ticker, type, price, quantity, profit FROM trade_history ORDER BY id DESC LIMIT 20"
     )
     rows = cursor.fetchall()
     conn.close()
@@ -66,14 +75,12 @@ def get_db_history():
 
 
 def run_trading_cycle(token, target_ticker, daily_goal):
-    """매매 루프 사이클 및 결과 취합"""
     try:
         today_p, week_p, month_p = get_statistics()
         conn = sqlite3.connect("virtual_trade.db")
         db_cash = conn.execute("SELECT cash FROM account").fetchone()[0]
         conn.close()
 
-        # 목표 달성 체크
         if today_p >= daily_goal:
             return {
                 "status": "GOAL_REACHED",
@@ -98,7 +105,6 @@ def run_trading_cycle(token, target_ticker, daily_goal):
         )
         decision = ai_res.get("decision", "HOLD")
 
-        # 30만원 규모 현실적 단타
         qty = 300000 // price
         if qty < 1:
             qty = 1

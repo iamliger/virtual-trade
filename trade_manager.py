@@ -5,7 +5,6 @@ DB_FILE = "virtual_trade.db"
 
 
 def execute_scalping_buy(ticker, current_price, quantity):
-    """가상 매수 및 DB 반영"""
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
     total_cost = current_price * quantity
@@ -49,7 +48,6 @@ def execute_scalping_buy(ticker, current_price, quantity):
 
 
 def execute_scalping_sell(ticker, current_price, quantity):
-    """가상 매도 및 정밀 수익 정산"""
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
     cursor.execute(
