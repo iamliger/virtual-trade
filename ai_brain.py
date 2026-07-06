@@ -7,15 +7,13 @@ import ollama
 def get_ai_investment_decision(
     ticker, current_price, price_history_str, news_headlines
 ):
-    """100% 한국어 및 소액 투자 최적화 분석"""
     system_instruction = (
-        "너는 한국 최고의 주식 단타 전문가이다. 규칙을 엄격히 지켜라.\n"
-        "1. 모든 답변은 오직 '한국어'로만 작성한다. 영어는 단 한 단어도 사용하지 마라.\n"
-        '2. 출력은 무조건 JSON 형식이다: {"decision": "BUY/SELL/HOLD", "reason": "한글 상세 이유"}\n'
-        "3. 현재 자본금이 적으므로, 리스크를 최소화하는 보수적인 단타 전략을 취하라."
+        "너는 한국 최고의 소액 단타 전문가이다. "
+        "모든 답변은 무조건 '한국어'로만 작성하라. 영어는 단 한 단어도 금지한다. "
+        'JSON 형식만 출력: {"decision": "BUY/SELL/HOLD", "reason": "한글 이유"}'
     )
-    news_text = "\n".join(news_headlines) if news_headlines else "특이 뉴스 없음."
-    user_message = f"종목: {ticker}, 현재가: {current_price}원, 추세: {price_history_str}, 뉴스: {news_text}"
+    news_text = "\n".join(news_headlines) if news_headlines else "뉴스 없음."
+    user_message = f"종목:{ticker}, 현재가:{current_price}원, 흐름:{price_history_str}, 뉴스:{news_text}"
 
     try:
         response = ollama.chat(
@@ -30,6 +28,23 @@ def get_ai_investment_decision(
         json_match = re.search(r"\{.*\}", ai_reply, re.DOTALL)
         if json_match:
             return json.loads(json_match.group())
-        return {"decision": "HOLD", "reason": "AI 분석 결과 해석 불가."}
+        return {"decision": "HOLD", "reason": "AI 분석 지연 중."}
     except Exception as e:
         return {"decision": "HOLD", "reason": f"AI 분석 에러: {str(e)}"}
+
+
+def ai_discover_new_stocks(cash, candidate_pool):
+    prompt = (
+        f"현재 자본금은 {cash}원이다. 아래 [후보 리스트]에서 오늘 단타 수익이 유망한 "
+        f"저가주 10개를 골라라. 반드시 한국어로 '종목명:코드' 형식으로만 나열하라.\n"
+        f"[후보 리스트]: {candidate_pool}"
+    )
+    try:
+        response = ollama.chat(
+            model="llama3",
+            messages=[{"role": "user", "content": prompt}],
+            options={"temperature": 0.1},
+        )
+        return response.get("message", {}).get("content", "").strip()
+    except:
+        return ""

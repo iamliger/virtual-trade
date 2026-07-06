@@ -20,7 +20,7 @@ def create_tables():
         """CREATE TABLE IF NOT EXISTS ai_log (id INTEGER PRIMARY KEY AUTOINCREMENT, log_date TEXT, ticker TEXT, decision TEXT, reason TEXT)"""
     )
     cursor.execute(
-        """CREATE TABLE IF NOT EXISTS stock_master (ticker TEXT PRIMARY KEY, name TEXT)"""
+        """CREATE TABLE IF NOT EXISTS stock_master (ticker TEXT PRIMARY KEY, name TEXT, price INTEGER)"""
     )
 
     cursor.execute("SELECT count(*) FROM account")
@@ -40,6 +40,7 @@ def reset_db_completely():
     cursor.execute("DELETE FROM holdings")
     cursor.execute("DELETE FROM trade_history")
     cursor.execute("DELETE FROM ai_log")
+    cursor.execute("DELETE FROM stock_master")
     cursor.execute(
         "INSERT INTO account VALUES (?, ?)",
         (100000, datetime.now().strftime("%Y-%m-%d %H:%M:%S")),

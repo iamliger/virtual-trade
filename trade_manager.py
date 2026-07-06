@@ -7,7 +7,7 @@ DB_FILE = "virtual_trade.db"
 def execute_scalping_buy(ticker, current_price, quantity):
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
-    total_cost = current_price * quantity
+    total_cost = int(current_price * quantity)
     fee = int(total_cost * 0.00015)
     final_deduction = total_cost + fee
     cursor.execute("SELECT cash FROM account")
@@ -57,7 +57,7 @@ def execute_scalping_sell(ticker, current_price, quantity):
     if not row or row[0] < quantity:
         conn.close()
         return False, "주식 부족"
-    total_sales = current_price * quantity
+    total_sales = int(current_price * quantity)
     fee_tax = int(total_sales * (0.00015 + 0.0018))
     profit = (total_sales - fee_tax) - (row[1] * quantity)
     cursor.execute("UPDATE account SET cash = cash + ?", (total_sales - fee_tax,))
@@ -81,4 +81,4 @@ def execute_scalping_sell(ticker, current_price, quantity):
     )
     conn.commit()
     conn.close()
-    return True, f"수익: {profit:,}원"
+    return True, f"수익:{profit:,}원"
