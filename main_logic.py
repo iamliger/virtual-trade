@@ -42,36 +42,22 @@ def predict_best_stock():
         return "예측 엔진 연결 실패"
 
 
-def get_holdings():
-    conn = sqlite3.connect("virtual_trade.db")
-    cursor = conn.cursor()
-    cursor.execute("SELECT ticker, quantity, avg_price FROM holdings")
-    rows = cursor.fetchall()
-    conn.close()
-    return rows
-
-
-def get_db_history():
-    conn = sqlite3.connect("virtual_trade.db")
-    cursor = conn.cursor()
-    cursor.execute(
-        "SELECT trade_date, ticker, type, price, profit FROM trade_history ORDER BY id DESC LIMIT 10"
-    )
-    rows = cursor.fetchall()
-    conn.close()
-    return rows
-
-
 def run_trading_cycle(token, target_ticker, daily_goal):
     try:
         today_profit, weekly_profit, monthly_profit = get_statistics()
+        # [핵심] 목표 달성 여부 반환
         if today_profit >= daily_goal:
-            return {"status": "GOAL_REACHED", "today_profit": today_profit}
+            return {
+                "status": "GOAL_REACHED",
+                "today_profit": today_profit,
+                "weekly_profit": weekly_profit,
+                "monthly_profit": monthly_profit,
+            }
 
         stock = yf.Ticker(target_ticker)
         df = stock.history(period="1d", interval="1m")
         if df.empty:
-            return {"status": "WAITING", "msg": "API 데이터 동기화 대기 중..."}
+            return {"status": "WAITING", "msg": "실시간 데이터 동기화 중..."}
 
         current_price = int(df["Close"].iloc[-1])
         recent_prices = df["Close"].tail(5).tolist()
@@ -87,7 +73,7 @@ def run_trading_cycle(token, target_ticker, daily_goal):
         if qty < 1:
             qty = 1
 
-        trade_msg = "관망"
+        trade_msg = "대기"
         if decision == "BUY":
             success, msg = execute_scalping_buy(target_ticker, current_price, qty)
             trade_msg = f"매수 {msg}" if success else f"매수 실패({msg})"
