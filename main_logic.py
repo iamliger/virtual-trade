@@ -28,7 +28,7 @@ def predict_best_stock():
         try:
             stock = yf.Ticker(ticker)
             news = stock.news[:1]
-            title = news[0].get("title", "특이 소식 없음") if news else "소식 없음"
+            title = news[0].get("title", "소식 없음") if news else "소식 없음"
             summary += f"- {name}: {title}\n"
         except:
             continue
@@ -55,7 +55,7 @@ def get_db_history():
     conn = sqlite3.connect("virtual_trade.db")
     cursor = conn.cursor()
     cursor.execute(
-        "SELECT trade_date, ticker, type, price, profit FROM trade_history ORDER BY id DESC LIMIT 15"
+        "SELECT trade_date, ticker, type, price, profit FROM trade_history ORDER BY id DESC LIMIT 10"
     )
     rows = cursor.fetchall()
     conn.close()
@@ -65,14 +65,13 @@ def get_db_history():
 def run_trading_cycle(token, target_ticker, daily_goal):
     try:
         today_profit, weekly_profit, monthly_profit = get_statistics()
-        # 목표 수익 달성 체크
         if today_profit >= daily_goal:
             return {"status": "GOAL_REACHED", "today_profit": today_profit}
 
         stock = yf.Ticker(target_ticker)
         df = stock.history(period="1d", interval="1m")
         if df.empty:
-            return {"status": "WAITING", "msg": "API 실시간 데이터 동기화 대기 중..."}
+            return {"status": "WAITING", "msg": "API 데이터 동기화 대기 중..."}
 
         current_price = int(df["Close"].iloc[-1])
         recent_prices = df["Close"].tail(5).tolist()
@@ -84,7 +83,6 @@ def run_trading_cycle(token, target_ticker, daily_goal):
         )
         decision = ai_res.get("decision", "HOLD")
 
-        # 현실적 단타 규모 (회당 약 30만원 규모 매수)
         qty = 300000 // current_price
         if qty < 1:
             qty = 1

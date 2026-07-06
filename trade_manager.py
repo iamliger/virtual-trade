@@ -19,6 +19,7 @@ def execute_scalping_buy(ticker, current_price, quantity):
         return False, "예수금 부족"
 
     cursor.execute("UPDATE account SET cash = cash - ?", (final_deduction,))
+
     cursor.execute(
         "SELECT quantity, avg_price FROM holdings WHERE ticker = ?", (ticker,)
     )
