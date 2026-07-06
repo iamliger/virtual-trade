@@ -5,8 +5,10 @@ DB_FILE = "virtual_trade.db"
 
 
 def execute_scalping_buy(ticker, current_price, quantity):
+    """가상 매수 실행 및 DB 반영"""
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
+
     total_cost = current_price * quantity
     fee = int(total_cost * 0.00015)
     final_deduction = total_cost + fee
@@ -16,14 +18,16 @@ def execute_scalping_buy(ticker, current_price, quantity):
 
     if cash < final_deduction:
         conn.close()
-        return False
+        return False, "예수금 부족"
 
+    # 예수금 차감
     cursor.execute("UPDATE account SET cash = cash - ?", (final_deduction,))
+
+    # 보유 종목 추가/갱신
     cursor.execute(
         "SELECT quantity, avg_price FROM holdings WHERE ticker = ?", (ticker,)
     )
     row = cursor.fetchone()
-
     if row:
         new_qty = row[0] + quantity
         new_avg = int(((row[1] * row[0]) + (current_price * quantity)) / new_qty)
@@ -36,39 +40,44 @@ def execute_scalping_buy(ticker, current_price, quantity):
             "INSERT INTO holdings VALUES (?, ?, ?)", (ticker, quantity, current_price)
         )
 
+    # 히스토리 기록
     cursor.execute(
         "INSERT INTO trade_history (trade_date, ticker, type, price, quantity, profit) VALUES (?, ?, ?, ?, ?, ?)",
         (
             datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             ticker,
-            "BUY",
+            "매수",
             current_price,
             quantity,
             0,
         ),
     )
+
     conn.commit()
     conn.close()
-    return True
+    return True, "성공"
 
 
 def execute_scalping_sell(ticker, current_price, quantity):
+    """가상 매도 실행 및 실수익 계산"""
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
+
     cursor.execute(
         "SELECT quantity, avg_price FROM holdings WHERE ticker = ?", (ticker,)
     )
     row = cursor.fetchone()
-
     if not row or row[0] < quantity:
         conn.close()
-        return False
+        return False, "보유 주식 부족"
 
+    avg_buy_price = row[1]
     total_sales = current_price * quantity
     fee_tax = int(total_sales * (0.00015 + 0.0018))
     final_income = total_sales - fee_tax
-    profit = final_income - (row[1] * quantity)
+    profit = final_income - (avg_buy_price * quantity)
 
+    # 예수금 추가 및 보유량 차감
     cursor.execute("UPDATE account SET cash = cash + ?", (final_income,))
     if row[0] == quantity:
         cursor.execute("DELETE FROM holdings WHERE ticker = ?", (ticker,))
@@ -83,12 +92,13 @@ def execute_scalping_sell(ticker, current_price, quantity):
         (
             datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             ticker,
-            "SELL",
+            "매도",
             current_price,
             quantity,
             profit,
         ),
     )
+
     conn.commit()
     conn.close()
-    return True
+    return True, f"수익: {profit:,}원"
