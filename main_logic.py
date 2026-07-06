@@ -1,4 +1,6 @@
+# main_logic.py
 import sqlite3
+import time
 from datetime import datetime
 
 import ollama
@@ -20,31 +22,30 @@ SCAN_POOL = {
 }
 
 
-def predict_best_stock():
-    summary = ""
-    for name, ticker in SCAN_POOL.items():
-        stock = yf.Ticker(ticker)
-        news = stock.news[:1]
-        headline = news[0].get("title", "특이사항 없음") if news else "특이사항 없음"
-        summary += f"- {name}: {headline}\n"
-
-    # AI에게 한글 리포트를 강제하는 프롬프트
-    prompt = (
-        f"너는 여의도 최고의 전략가이다. 아래 뉴스 데이터를 분석해서 "
-        f"오늘 가장 유망한 섹터와 그 이유, 그리고 원픽 종목을 '한국어'로만 상세히 보고하라. "
-        f"절대 영어를 섞지 말고, 한글로만 친절하고 논리적으로 설명해라.\n\n데이터:\n{summary}"
+def setup_db():
+    conn = sqlite3.connect("virtual_trade.db")
+    cursor = conn.cursor()
+    cursor.execute(
+        """CREATE TABLE IF NOT EXISTS account (cash INTEGER, updated_at TEXT)"""
     )
-
-    try:
-        response = ollama.chat(
-            model="llama3", messages=[{"role": "user", "content": prompt}]
-        )
-        return response["message"]["content"]
-    except:
-        return "종목 예측 엔진을 불러올 수 없습니다."
+    cursor.execute(
+        """CREATE TABLE IF NOT EXISTS holdings (ticker TEXT PRIMARY KEY, quantity INTEGER, avg_price INTEGER)"""
+    )
+    cursor.execute(
+        """CREATE TABLE IF NOT EXISTS trade_history (id INTEGER PRIMARY KEY AUTOINCREMENT, trade_date TEXT, ticker TEXT, type TEXT, price INTEGER, quantity INTEGER, profit INTEGER)"""
+    )
+    cursor.execute(
+        """CREATE TABLE IF NOT EXISTS ai_log (id INTEGER PRIMARY KEY AUTOINCREMENT, log_date TEXT, ticker TEXT, decision TEXT, reason TEXT)"""
+    )
+    cursor.execute(
+        """CREATE TABLE IF NOT EXISTS stock_master (ticker TEXT PRIMARY KEY, name TEXT)"""
+    )
+    conn.commit()
+    conn.close()
 
 
 def get_dynamic_stocks():
+    setup_db()
     return [f"{name} ({ticker})" for name, ticker in SCAN_POOL.items()]
 
 
@@ -52,22 +53,58 @@ def get_db_history():
     conn = sqlite3.connect("virtual_trade.db")
     cursor = conn.cursor()
     cursor.execute(
-        "SELECT trade_date, ticker, type, price, profit FROM trade_history ORDER BY id DESC LIMIT 10"
+        "SELECT trade_date, ticker, type, price, profit FROM trade_history ORDER BY id DESC LIMIT 15"
     )
     rows = cursor.fetchall()
     conn.close()
     return rows
 
 
-def run_trading_cycle(token, target_ticker):
+def predict_best_stock():
+    """AI 시장 예측 리포트 생성 (한글 봉인 강화)"""
+    summary = ""
+    for name, ticker in SCAN_POOL.items():
+        try:
+            stock = yf.Ticker(ticker)
+            news = stock.news[:1]
+            headline = (
+                news[0].get("title", "특이 소식 없음") if news else "특이 소식 없음"
+            )
+            summary += f"- {name}: {headline}\n"
+        except:
+            summary += f"- {name}: 데이터 지연 중\n"
+
+    # AI에게 '한국어'만 사용하도록 매우 강한 제약을 거는 프롬프트
+    prompt = (
+        "너는 한국의 펀드매니저이다. 아래 데이터를 분석해서 오늘 가장 유망한 종목 1개를 골라라.\n"
+        "반드시 한국어로만 대답하고, 영어는 절대 쓰지 마라. 답변의 시작은 '오늘의 시장 분석 보고서:'로 시작하라.\n"
+        f"데이터:\n{summary}"
+    )
+    try:
+        response = ollama.chat(
+            model="llama3", messages=[{"role": "user", "content": prompt}]
+        )
+        reply = response["message"]["content"]
+        # 만약 영어가 섞여있다면 강제로 한글로 변환하는 등의 로직은 모델 성능에 의존하나,
+        # 프롬프트 강화가 가장 효과적임.
+        return reply
+    except Exception as e:
+        return f"예측 엔진 오류 발생: {str(e)}"
+
+
+def run_trading_cycle(token, target_ticker, goal_amount):
     try:
         now = datetime.now()
-        is_closing_time = now.hour == 15 and 20 <= now.minute <= 30
+        is_closing = now.hour == 15 and 20 <= now.minute <= 30
 
         stock = yf.Ticker(target_ticker)
         df = stock.history(period="1d", interval="1m")
+
         if df.empty:
-            return {"error": "데이터 수집 불가"}
+            return {
+                "status": "WAITING",
+                "msg": "장이 열리기를 기다리고 있습니다. (09:00 개장)",
+            }
 
         current_price = int(df["Close"].iloc[-1])
         recent_prices = df["Close"].tail(5).tolist()
@@ -76,38 +113,43 @@ def run_trading_cycle(token, target_ticker):
         news_data = stock.news[:3] if stock.news else []
         news_headlines = [n.get("title") for n in news_data if n.get("title")]
 
-        if is_closing_time:
-            decision, reason = "SELL", "🔔 장 마감 자동 청산"
+        if is_closing:
+            decision, reason = "SELL", "🔔 장 마감 수익 확정 자동 매도 시점입니다."
         else:
             ai_res = get_ai_investment_decision(
                 target_ticker, current_price, price_history_str, news_headlines
             )
-            decision, reason = ai_res.get("decision", "HOLD"), ai_res.get(
-                "reason", "분석중"
-            )
+            decision = ai_res.get("decision", "HOLD")
+            reason = ai_res.get("reason", "분석 중")
 
-        # 30만원 규모 매매
+        # 30만원 기준 매수 수량
         qty = 300000 // current_price
         if qty < 1:
             qty = 1
 
         trade_status = "IDLE"
-        if decision == "BUY" and execute_scalping_buy(
-            target_ticker, current_price, qty
-        ):
-            trade_status = "BUY_OK"
-        elif decision == "SELL" and execute_scalping_sell(
-            target_ticker, current_price, qty
-        ):
-            trade_status = "SELL_OK"
+        if decision == "BUY":
+            if execute_scalping_buy(target_ticker, current_price, qty):
+                trade_status = f"매수성공({qty}주)"
+            else:
+                trade_status = "매수실패(예수금부족)"
+        elif decision == "SELL":
+            if execute_scalping_sell(target_ticker, current_price, qty):
+                trade_status = f"매도성공({qty}주)"
+            else:
+                trade_status = "매도실패(주식부족)"
 
         return {
+            "status": "ACTIVE",
             "price": current_price,
             "decision": decision,
             "reason": reason,
-            "news": "\n".join(news_headlines) if news_headlines else "뉴스 없음",
+            "news": (
+                "\n".join(news_headlines) if news_headlines else "현재 실시간 뉴스 없음"
+            ),
             "balance": get_mock_cash_balance(token),
             "trade_status": trade_status,
+            "ticker": target_ticker,
         }
     except Exception as e:
-        return {"error": str(e)}
+        return {"status": "ERROR", "msg": str(e)}

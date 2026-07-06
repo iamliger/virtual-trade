@@ -1,7 +1,11 @@
+# gui_app.py
 import threading
 import time
+from datetime import datetime
 
 import customtkinter as ctk
+
+from kis_api import get_access_token
 from main_logic import (
     get_db_history,
     get_dynamic_stocks,
@@ -9,131 +13,187 @@ from main_logic import (
     run_trading_cycle,
 )
 
-from kis_api import get_access_token
-
 ctk.set_appearance_mode("dark")
+ctk.set_default_color_theme("blue")
 
 
 class TradingApp(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.title("AI 로컬 가상 매매 시스템 v1.8")
-        self.geometry("1100x950")
+        self.title("AI 로컬 가상 매매 시스템 v1.9 (Heartbeat Engine)")
+        self.geometry("1200x1000")
 
-        # 1. 상단 예측 배너
-        self.predict_text = ctk.CTkTextbox(
-            self, height=120, font=("Malgun Gothic", 12), text_color="#FFD700"
+        # [1] 상태 배너
+        self.status_frame = ctk.CTkFrame(self, fg_color="#1a1a1a", height=40)
+        self.status_frame.pack(fill="x", padx=20, pady=5)
+        self.clock_label = ctk.CTkLabel(
+            self.status_frame, text="", font=("Consolas", 14), text_color="#00FF00"
         )
-        self.predict_text.pack(fill="x", padx=20, pady=10)
-        self.predict_text.insert("0.0", "🛰️ 버튼을 누르면 AI 시장 예측이 시작됩니다...")
+        self.clock_label.pack(side="left", padx=20)
+        self.system_status = ctk.CTkLabel(
+            self.status_frame, text="상태: 대기 중", font=("Malgun Gothic", 12)
+        )
+        self.system_status.pack(side="right", padx=20)
 
-        # 2. 진행 바
-        self.progress_bar = ctk.CTkProgressBar(self, width=800)
+        # [2] AI 시장 예측 리포트 (한글 전용)
+        self.predict_box = ctk.CTkTextbox(
+            self,
+            height=120,
+            font=("Malgun Gothic", 13),
+            text_color="#FFD700",
+            border_width=1,
+        )
+        self.predict_box.pack(fill="x", padx=20, pady=5)
+        self.predict_box.insert(
+            "0.0", "🚀 분석 엔진을 기동하면 AI 시장 예측 리포트가 여기에 표시됩니다."
+        )
+
+        # [3] 프로그래스 바
+        self.progress_bar = ctk.CTkProgressBar(self, width=900)
         self.progress_bar.set(0)
-        self.progress_bar.pack(pady=5)
+        self.progress_bar.pack(pady=10)
 
-        # 3. 메인 영역
-        self.main_frame = ctk.CTkFrame(self)
-        self.main_frame.pack(fill="both", expand=True, padx=20, pady=5)
+        self.main_container = ctk.CTkFrame(self)
+        self.main_container.pack(fill="both", expand=True, padx=20, pady=5)
 
-        self.ai_text = ctk.CTkTextbox(
-            self.main_frame, font=("Malgun Gothic", 15), width=600
+        # [4] 왼쪽 패널 - 분석 리포트
+        self.left_panel = ctk.CTkFrame(self.main_container)
+        self.left_panel.pack(side="left", fill="both", expand=True, padx=10, pady=10)
+        self.ai_report = ctk.CTkTextbox(
+            self.left_panel, font=("Malgun Gothic", 15), border_width=1
         )
-        self.ai_text.pack(side="left", fill="both", expand=True, padx=10, pady=10)
+        self.ai_report.pack(fill="both", expand=True, padx=10, pady=10)
 
-        self.info_frame = ctk.CTkFrame(self.main_frame, width=400)
-        self.info_frame.pack(side="right", fill="both", expand=False, padx=10, pady=10)
+        # [5] 오른쪽 패널 - 설정 및 정보
+        self.right_panel = ctk.CTkFrame(self.main_container, width=380)
+        self.right_panel.pack(side="right", fill="both", expand=False, padx=10, pady=10)
 
-        self.ticker_menu = ctk.CTkOptionMenu(
-            self.info_frame, values=get_dynamic_stocks()
+        ctk.CTkLabel(
+            self.right_panel, text="🎯 목표 수익(원)", font=("Malgun Gothic", 13)
+        ).pack(pady=5)
+        self.goal_input = ctk.CTkEntry(self.right_panel, justify="center")
+        self.goal_input.insert(0, "5000")
+        self.goal_input.pack(pady=5)
+
+        ctk.CTkLabel(
+            self.right_panel, text="📡 분석 대상 종목", font=("Malgun Gothic", 13)
+        ).pack(pady=5)
+        self.ticker_selector = ctk.CTkOptionMenu(
+            self.right_panel, values=get_dynamic_stocks()
         )
-        self.ticker_menu.pack(pady=20)
+        self.ticker_selector.pack(pady=10)
 
-        self.price_label = ctk.CTkLabel(
-            self.info_frame, text="현재가: --원", font=("Malgun Gothic", 30, "bold")
+        self.price_display = ctk.CTkLabel(
+            self.right_panel,
+            text="현재가: 조회 중...",
+            font=("Malgun Gothic", 32, "bold"),
         )
-        self.price_label.pack(pady=20)
+        self.price_display.pack(pady=30)
 
-        self.balance_label = ctk.CTkLabel(
-            self.info_frame, text="예수금: 조회 중...", font=("Malgun Gothic", 16)
+        self.balance_display = ctk.CTkLabel(
+            self.right_panel, text="예수금: 조회 중...", font=("Malgun Gothic", 16)
         )
-        self.balance_label.pack(pady=10)
+        self.balance_display.pack(pady=10)
 
-        # 4. 하단 DB 히스토리
+        # [6] 하단 - DB 히스토리 로그
         ctk.CTkLabel(
             self,
-            text="📜 실시간 DB 매매 내역 및 로그",
+            text="📜 실시간 DB 매매 내역 및 시스템 로그",
             font=("Malgun Gothic", 14, "bold"),
         ).pack()
-        self.history_text = ctk.CTkTextbox(
-            self, height=200, font=("Consolas", 11), fg_color="#000000"
-        )
-        self.history_text.pack(fill="x", padx=20, pady=10)
-
-        self.start_button = ctk.CTkButton(
+        self.log_box = ctk.CTkTextbox(
             self,
-            text="AI 전략 가동 및 DB 동기화",
-            command=self.start_trading_thread,
+            height=220,
+            font=("Consolas", 11),
+            fg_color="#000000",
+            text_color="#FFFFFF",
+        )
+        self.log_box.pack(fill="x", padx=20, pady=10)
+
+        self.btn_start = ctk.CTkButton(
+            self,
+            text="AI 분석 엔진 기동 및 자동 매매 시작",
+            command=self.start_engine,
             fg_color="green",
             height=50,
+            font=("Malgun Gothic", 16, "bold"),
         )
-        self.start_button.pack(pady=10)
+        self.btn_start.pack(pady=15)
 
-    def update_ui(self, data):
-        # 1. AI 리포트 창 업데이트
-        self.ai_text.configure(state="normal")
-        self.ai_text.delete("1.0", "end")
-        content = f"🎯 분석 대상: {self.ticker_menu.get()}\n"
-        content += f"📡 AI 판단: [{data.get('decision', 'HOLD')}]\n"
-        content += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        content += f"💡 분석 근거 (100% 한글): {data.get('reason', '분석 중')}\n\n"
-        content += f"📰 수집된 실시간 뉴스:\n{data.get('news', '뉴스 없음')}"
-        self.ai_text.insert("1.0", content)
-        self.ai_text.configure(state="disabled")
+        self.update_clock()
 
-        # 2. 시세 및 잔고
-        self.price_label.configure(text=f"{data.get('price', 0):,}원")
-        self.balance_label.configure(text=f"예수금: {data.get('balance', 0):,}원")
+    def update_clock(self):
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        self.clock_label.configure(text=f"현재시간: {now}")
+        self.after(1000, self.update_clock)
 
-        # 3. 💡 DB에서 실제 저장된 내역을 실시간으로 다시 긁어와서 히스토리에 표시
-        self.update_db_display()
+    def add_log(self, msg):
+        self.log_box.insert("end", f"[{datetime.now().strftime('%H:%M:%S')}] {msg}\n")
+        self.log_box.see("end")
 
-    def update_db_display(self):
-        """DB에 저장된 실제 매매 내역을 하단 히스토리에 시각화"""
-        history = get_db_history()  # main_logic에 있는 함수 호출
-        self.history_text.delete("1.0", "end")
-        self.history_text.insert("end", "--- [최근 DB 매매 및 정산 기록] ---\n")
+    def refresh_db_view(self):
+        history = get_db_history()
+        self.log_box.delete("1.0", "end")
+        self.add_log("--- [실시간 DB 매매 기록 최신화] ---")
         for row in history:
-            # row[0]:날짜, row[1]:종목, row[2]:타입, row[3]:가격, row[4]:수익
-            self.history_text.insert(
-                "end",
-                f"📅 {row[0]} | {row[1]} | {row[2]} | 가격:{row[3]:,} | 손익:{row[4]:,}\n",
+            self.add_log(
+                f"📅 {row[0]} | {row[1]} | {row[2]} | 가격:{row[3]:,} | 손익:{row[4]:,}"
             )
-        self.history_text.see("end")
+        self.add_log("----------------------------------")
 
-    def start_trading_thread(self):
-        self.start_button.configure(state="disabled")
-        threading.Thread(target=self.initial_work, daemon=True).start()
+    def update_display(self, data):
+        if data["status"] == "WAITING":
+            self.system_status.configure(text="상태: 장 개시 대기 중")
+            self.ai_report.configure(state="normal")
+            self.ai_report.delete("1.0", "end")
+            self.ai_report.insert("1.0", f"😴 {data['msg']}")
+            self.ai_report.configure(state="disabled")
+            return
 
-    def initial_work(self):
+        self.system_status.configure(text=f"상태: {data['ticker']} 분석 중")
+        self.ai_report.configure(state="normal")
+        self.ai_report.delete("1.0", "end")
+        report_txt = f"대상: {data['ticker']}\n결정: {data['decision']}\n"
+        report_txt += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        report_txt += f"💡 분석근거: {data['reason']}\n\n"
+        report_txt += f"📰 최신뉴스: {data['news']}"
+        self.ai_report.insert("1.0", report_txt)
+        self.ai_report.configure(state="disabled")
+
+        self.price_display.configure(text=f"{data['price']:,}원")
+        self.balance_display.configure(text=f"예수금: {data['balance']:,}원")
+
+        if "성공" in data["trade_status"]:
+            self.add_log(
+                f"✅ DB 기록: {data['trade_status']} | 가격: {data['price']:,}"
+            )
+            self.refresh_db_view()
+        elif "실패" in data["trade_status"]:
+            self.add_log(f"❌ {data['trade_status']}")
+
+    def start_engine(self):
+        self.btn_start.configure(state="disabled", text="AI 엔진 구동 중...")
+        self.add_log("🚀 시스템 가동: AI 시장 예측 리포트를 먼저 생성합니다.")
+        threading.Thread(target=self.run_initial_analysis, daemon=True).start()
+
+    def run_initial_analysis(self):
         pred = predict_best_stock()
         self.after(
             0,
             lambda: (
-                self.predict_text.delete("1.0", "end"),
-                self.predict_text.insert("1.0", f"🚀 예측: {pred}"),
+                self.predict_box.delete("1.0", "end"),
+                self.predict_box.insert("1.0", f"🚀 AI 오늘의 시장 분석:\n{pred}"),
             ),
         )
-        self.trading_loop()
+        self.trading_main_loop()
 
-    def trading_loop(self):
+    def trading_main_loop(self):
         token = get_access_token()
         while True:
-            ticker = self.ticker_menu.get().split("(")[1].replace(")", "")
-            res = run_trading_cycle(token, ticker)
-            if "error" not in res:
-                self.after(0, lambda: self.update_ui(res))
-
+            ticker = self.ticker_selector.get().split("(")[1].replace(")", "")
+            goal = int(self.goal_input.get())
+            result = run_trading_cycle(token, ticker, goal)
+            self.after(0, lambda r=result: self.update_display(r))
             for i in range(61):
                 self.after(0, lambda v=i: self.progress_bar.set(v / 60))
                 time.sleep(1)
