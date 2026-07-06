@@ -5,7 +5,7 @@ DB_FILE = "virtual_trade.db"
 
 
 def execute_scalping_buy(ticker, current_price, quantity):
-    """가상 매수 실행 및 DB 반영"""
+    """가상 매수 실행 (1회 최대 50만원 제한은 main_logic에서 처리)"""
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
 
@@ -20,10 +20,8 @@ def execute_scalping_buy(ticker, current_price, quantity):
         conn.close()
         return False, "예수금 부족"
 
-    # 예수금 차감
     cursor.execute("UPDATE account SET cash = cash - ?", (final_deduction,))
 
-    # 보유 종목 추가/갱신
     cursor.execute(
         "SELECT quantity, avg_price FROM holdings WHERE ticker = ?", (ticker,)
     )
@@ -40,7 +38,6 @@ def execute_scalping_buy(ticker, current_price, quantity):
             "INSERT INTO holdings VALUES (?, ?, ?)", (ticker, quantity, current_price)
         )
 
-    # 히스토리 기록
     cursor.execute(
         "INSERT INTO trade_history (trade_date, ticker, type, price, quantity, profit) VALUES (?, ?, ?, ?, ?, ?)",
         (
@@ -59,7 +56,7 @@ def execute_scalping_buy(ticker, current_price, quantity):
 
 
 def execute_scalping_sell(ticker, current_price, quantity):
-    """가상 매도 실행 및 실수익 계산"""
+    """가상 매도 실행 및 정밀 수익 계산"""
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
 
@@ -73,11 +70,10 @@ def execute_scalping_sell(ticker, current_price, quantity):
 
     avg_buy_price = row[1]
     total_sales = current_price * quantity
-    fee_tax = int(total_sales * (0.00015 + 0.0018))
+    fee_tax = int(total_sales * (0.00015 + 0.0018))  # 수수료 + 거래세
     final_income = total_sales - fee_tax
     profit = final_income - (avg_buy_price * quantity)
 
-    # 예수금 추가 및 보유량 차감
     cursor.execute("UPDATE account SET cash = cash + ?", (final_income,))
     if row[0] == quantity:
         cursor.execute("DELETE FROM holdings WHERE ticker = ?", (ticker,))

@@ -5,7 +5,7 @@ DB_FILE = "virtual_trade.db"
 
 
 def create_tables():
-    """DB 초기화 및 테이블 생성 (예수금 강제 설정 포함)"""
+    """DB 초기화 및 테이블 생성"""
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
     # 1. 계좌 (예수금)
@@ -30,30 +30,55 @@ def create_tables():
         """CREATE TABLE IF NOT EXISTS stock_master (ticker TEXT PRIMARY KEY, name TEXT)"""
     )
 
-    # [핵심] 예수금이 없으면 5,000만원 강제 입금
+    # 초기 실행 시 데이터가 없으면 100만원으로 시작 (현실적 시뮬레이션)
     cursor.execute("SELECT count(*) FROM account")
     if cursor.fetchone()[0] == 0:
         cursor.execute(
             "INSERT INTO account VALUES (?, ?)",
-            (50000000, datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
+            (1000000, datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
         )
 
     conn.commit()
     conn.close()
-    print("✅ [DB] 시스템 초기화 및 가상 자산 5,000만원 입금 완료")
 
 
-def reset_db():
-    """DB 전체 초기화 기능"""
+def update_cash(new_amount):
+    """사용자가 원하는 시드머니로 DB 예수금 수동 업데이트"""
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
-    cursor.execute("DROP TABLE IF EXISTS account")
-    cursor.execute("DROP TABLE IF EXISTS holdings")
-    cursor.execute("DROP TABLE IF EXISTS trade_history")
-    cursor.execute("DROP TABLE IF EXISTS ai_log")
+    cursor.execute(
+        "UPDATE account SET cash = ?, updated_at = ?",
+        (new_amount, datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
+    )
     conn.commit()
     conn.close()
-    create_tables()
+
+
+def get_statistics():
+    """주간 및 월간 수익 통계 계산"""
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+
+    # 오늘 수익
+    cursor.execute(
+        "SELECT SUM(profit) FROM trade_history WHERE date(trade_date) = date('now')"
+    )
+    today = cursor.fetchone()[0] or 0
+
+    # 주간 수익 (최근 7일)
+    cursor.execute(
+        "SELECT SUM(profit) FROM trade_history WHERE date(trade_date) >= date('now', '-7 days')"
+    )
+    weekly = cursor.fetchone()[0] or 0
+
+    # 월간 수익 (최근 30일)
+    cursor.execute(
+        "SELECT SUM(profit) FROM trade_history WHERE date(trade_date) >= date('now', '-30 days')"
+    )
+    monthly = cursor.fetchone()[0] or 0
+
+    conn.close()
+    return today, weekly, monthly
 
 
 if __name__ == "__main__":
