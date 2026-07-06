@@ -11,6 +11,7 @@ BASE_URL = "https://openapivts.koreainvestment.com:29443"
 
 
 def get_access_token():
+    """증권사 모의투자 서버 토큰 발급"""
     if not APP_KEY or not APP_SECRET:
         return None
     url = f"{BASE_URL}/oauth2/tokenP"
@@ -27,6 +28,7 @@ def get_access_token():
 
 
 def get_mock_cash_balance(token):
+    """실제 증권사 서버 가상 예수금 조회"""
     if len(ACCOUNT_NO) < 10:
         return 0
     url = f"{BASE_URL}/uapi/domestic-stock/v1/trading/inquire-balance"
