@@ -12,24 +12,8 @@ from db_manager import get_statistics
 from kis_api import get_access_token, get_mock_cash_balance
 from trade_manager import execute_scalping_buy, execute_scalping_sell
 
-# 404 유발 종목을 제거한 정제된 후보군
-CLEAN_POOL = [
-    "HMM:011200.KS",
-    "대한해운:005880.KS",
-    "미래산업:025560.KS",
-    "대원전선:006340.KS",
-    "우리기술:032820.KQ",
-    "팬오션:028670.KS",
-    "삼성중공업:010140.KS",
-    "이구산업:025820.KS",
-    "모나리자:004700.KS",
-    "대창:012800.KS",
-    "케이옥션:102370.KQ",
-]
-
 
 def check_ollama_status():
-    """Ollama 서버 구동 확인"""
     try:
         requests.get("http://localhost:11434/api/tags", timeout=2)
         return True
@@ -38,23 +22,19 @@ def check_ollama_status():
 
 
 def get_market_indices():
-    """KOSPI, KOSDAQ 지수 정보 (kd_change 에러 수정 완료)"""
     try:
         kospi = yf.Ticker("^KS11").history(period="1d")
         kosdaq = yf.Ticker("^KQ11").history(period="1d")
         kp = kospi["Close"].iloc[-1]
-        kp_change = ((kp - kospi["Open"].iloc[0]) / kospi["Open"].iloc[0]) * 100
+        kp_c = ((kp - kospi["Open"].iloc[0]) / kospi["Open"].iloc[0]) * 100
         kd = kosdaq["Close"].iloc[-1]
-        kd_change = ((kd - kosdaq["Open"].iloc[0]) / kosdaq["Open"].iloc[0]) * 100
-        return (
-            f"KOSPI: {kp:,.2f}({kp_change:+.2f}%), KOSDAQ: {kd:,.2f}({kd_change:+.2f}%)"
-        )
+        kd_c = ((kd - kosdaq["Open"].iloc[0]) / kosdaq["Open"].iloc[0]) * 100
+        return f"KOSPI: {kp:,.2f}({kp_c:+.2f}%), KOSDAQ: {kd:,.2f}({kd_c:+.2f}%)"
     except:
-        return "시장 지수 실시간 동기화 중..."
+        return "지수 정보 수신 중..."
 
 
 def get_kr_realtime_news(ticker_name):
-    """네이버 금융 기반 한글 실시간 뉴스 수집"""
     try:
         url = f"https://search.naver.com/search.naver?where=news&query={ticker_name}"
         headers = {"User-Agent": "Mozilla/5.0"}
@@ -66,44 +46,50 @@ def get_kr_realtime_news(ticker_name):
 
 
 def refresh_stock_pool_by_capital():
-    """자본금에 맞는 종목 동적 발굴 및 DB 업데이트"""
-    conn = sqlite3.connect("virtual_trade.db")
-    cash = conn.execute("SELECT cash FROM account").fetchone()[0]
-    conn.close()
-    ai_raw = ai_discover_new_stocks(cash, ",".join(CLEAN_POOL))
-    ticker_codes = re.findall(r"(\d{6}\.K[SQ])", ai_raw)
-    discovered = []
+    """[핵심 수정] 하드코딩 리스트를 버리고 DB의 stock_master를 읽어서 자본금 필터링 수행"""
     conn = sqlite3.connect("virtual_trade.db")
     cursor = conn.cursor()
-    cursor.execute("DELETE FROM stock_master")
-    for ticker in list(set(ticker_codes)):
+
+    # 1. 현재 가용 자본금 확인
+    cash = cursor.execute("SELECT cash FROM account").fetchone()[0]
+
+    # 2. DB 마스터에 등록된 모든 종목 로드
+    cursor.execute("SELECT ticker, name FROM stock_master")
+    master_list = cursor.fetchall()
+
+    discovered = []
+    for ticker, name in master_list:
         try:
+            # 실시간 가격 검증
             stock = yf.Ticker(ticker)
             hist = stock.history(period="1d")
             if not hist.empty:
                 price = int(hist["Close"].iloc[-1])
+                # 자본금으로 최소 1주 이상 살 수 있는 종목만 콤보박스에 노출
                 if price <= cash:
-                    name = stock.info.get("shortName", ticker)
                     cursor.execute(
-                        "INSERT OR REPLACE INTO stock_master VALUES (?, ?, ?)",
-                        (ticker, name, price),
+                        "UPDATE stock_master SET price = ? WHERE ticker = ?",
+                        (price, ticker),
                     )
                     discovered.append(f"{name} ({ticker})")
         except:
             continue
+
     conn.commit()
     conn.close()
-    return discovered if discovered else ["대한해운 (005880.KS)"]
+    return discovered if discovered else ["현금보유 (CASH)"]
 
 
 def predict_market_view():
-    """전체 시장 및 핵심 종목 예측 보고서"""
     conn = sqlite3.connect("virtual_trade.db")
-    stocks = conn.execute("SELECT name, ticker FROM stock_master LIMIT 3").fetchall()
+    # 현재 매매 가능한 상위 5종목 추천 근거 생성
+    stocks = conn.execute(
+        "SELECT name, ticker FROM stock_master WHERE price > 0 LIMIT 5"
+    ).fetchall()
     conn.close()
     summary = "\n".join([f"- {s[0]}({s[1]})" for s in stocks])
     indices = get_market_indices()
-    prompt = f"너는 한국 최고의 수석 전략가이다. 한국어로 현재 지수 {indices}와 종목군 {summary}를 기반으로 오늘 단타 전략을 상세히 보고하라. 영어 금지."
+    prompt = f"너는 한국 최고의 투자 전략가이다. 한국어로 현재 지수 {indices}와 후보종목 {summary}를 분석하여 오늘 단타 수익 전략을 보고하라."
     try:
         res = ollama.chat(
             model="llama3",
@@ -111,22 +97,24 @@ def predict_market_view():
             options={"temperature": 0.1},
         )
         reply = res["message"]["content"]
-        # 영어가 대량 포함된 경우 사후 처리
         return (
             reply
             if not re.search("[a-zA-Z]{15,}", reply)
-            else "시장 지수 변동성이 확대되고 있습니다. 가용 자본금 내에서 분할 매수 관점으로 접근하시기 바랍니다."
+            else "시장 변동성에 주의하며 기술적 반등 종목에 집중하십시오."
         )
     except:
-        return "예측 엔진 일시적 연결 지연"
+        return "예측 엔진 연결 오류"
 
 
 def get_db_history():
-    """최근 매매 히스토리 조회 (gui_app.py 필수 함수)"""
     conn = sqlite3.connect("virtual_trade.db")
+    # 거래내역에 종목명을 결합하여 출력
     cursor = conn.cursor()
     cursor.execute(
-        "SELECT trade_date, ticker, type, price, quantity, profit FROM trade_history ORDER BY id DESC LIMIT 20"
+        """SELECT t.trade_date, m.name, t.type, t.price, t.quantity, t.profit 
+                      FROM trade_history t 
+                      LEFT JOIN stock_master m ON t.ticker = m.ticker 
+                      ORDER BY t.id DESC LIMIT 20"""
     )
     rows = cursor.fetchall()
     conn.close()
@@ -134,16 +122,15 @@ def get_db_history():
 
 
 def get_db_holdings_with_names():
-    """보유 종목 현황에 종목명 매칭 및 평가 손익 계산"""
     conn = sqlite3.connect("virtual_trade.db")
     cursor = conn.cursor()
     cursor.execute(
-        "SELECT h.ticker, h.quantity, h.avg_price, m.name FROM holdings h LEFT JOIN stock_master m ON h.ticker = m.ticker"
+        "SELECT m.name, h.ticker, h.quantity, h.avg_price FROM holdings h LEFT JOIN stock_master m ON h.ticker = m.ticker"
     )
     rows = cursor.fetchall()
     conn.close()
     res = []
-    for t, q, a, n in rows:
+    for n, t, q, a in rows:
         try:
             name = n if n else t
             cp = int(yf.Ticker(t).history(period="1d")["Close"].iloc[-1])
@@ -156,14 +143,11 @@ def get_db_holdings_with_names():
 
 
 def run_trading_cycle(token, target_ticker, daily_goal):
-    """실시간 매매 엔진 루프 사이클"""
     try:
         today_p, week_p, month_p = get_statistics()
         conn = sqlite3.connect("virtual_trade.db")
         db_cash = conn.execute("SELECT cash FROM account").fetchone()[0]
         conn.close()
-
-        # [수익 목표 달성 여부 체크]
         if daily_goal > 0 and today_p >= daily_goal:
             return {
                 "status": "GOAL_REACHED",
@@ -174,12 +158,10 @@ def run_trading_cycle(token, target_ticker, daily_goal):
         stock = yf.Ticker(target_ticker)
         df = stock.history(period="1d", interval="1m")
         if df.empty:
-            return {"status": "WAITING", "msg": "데이터 동기화 대기 중..."}
+            return {"status": "WAITING", "msg": "실시간 데이터 수신 대기 중"}
 
         price = int(df["Close"].iloc[-1])
         chart_data = df["Close"].tail(30).tolist()
-
-        # 자산 부족 감지
         if price > db_cash:
             return {
                 "status": "ACTIVE",
@@ -196,15 +178,13 @@ def run_trading_cycle(token, target_ticker, daily_goal):
                 "chart": chart_data,
             }
 
-        # 뉴스 및 지수 기반 판단
-        news = get_kr_realtime_news(target_ticker.split(".")[0])
+        ticker_name = target_ticker.split(".")[0]
+        news = get_kr_realtime_news(ticker_name)
         indices = get_market_indices()
         ai_res = get_ai_investment_decision(
             target_ticker, price, "실시간 차트 분석 완료", news, indices
         )
         decision = ai_res.get("decision", "HOLD")
-
-        # 가용 자본 전체 투입
         qty = db_cash // (price + (price * 0.001))
 
         trade_msg = "관망"

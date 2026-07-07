@@ -13,11 +13,9 @@ def execute_scalping_buy(ticker, current_price, quantity):
     cursor.execute("SELECT cash FROM account")
     cash_row = cursor.fetchone()
     cash = cash_row[0] if cash_row else 0
-
     if cash < final_deduction:
         conn.close()
-        return False, "예수금 부족"
-
+        return False
     cursor.execute("UPDATE account SET cash = cash - ?", (final_deduction,))
     cursor.execute(
         "SELECT quantity, avg_price FROM holdings WHERE ticker = ?", (ticker,)
@@ -34,7 +32,6 @@ def execute_scalping_buy(ticker, current_price, quantity):
         cursor.execute(
             "INSERT INTO holdings VALUES (?, ?, ?)", (ticker, quantity, current_price)
         )
-
     cursor.execute(
         "INSERT INTO trade_history (trade_date, ticker, type, price, quantity, profit) VALUES (?, ?, ?, ?, ?, ?)",
         (
@@ -48,7 +45,7 @@ def execute_scalping_buy(ticker, current_price, quantity):
     )
     conn.commit()
     conn.close()
-    return True, "성공"
+    return True
 
 
 def execute_scalping_sell(ticker, current_price, quantity):
@@ -60,8 +57,7 @@ def execute_scalping_sell(ticker, current_price, quantity):
     row = cursor.fetchone()
     if not row or row[0] < quantity:
         conn.close()
-        return False, "주식 부족"
-
+        return False
     total_sales = int(current_price * quantity)
     fee_tax = int(total_sales * (0.00015 + 0.0018))
     profit = (total_sales - fee_tax) - (row[1] * quantity)
@@ -73,7 +69,6 @@ def execute_scalping_sell(ticker, current_price, quantity):
             "UPDATE holdings SET quantity = quantity - ? WHERE ticker = ?",
             (quantity, ticker),
         )
-
     cursor.execute(
         "INSERT INTO trade_history (trade_date, ticker, type, price, quantity, profit) VALUES (?, ?, ?, ?, ?, ?)",
         (
@@ -82,9 +77,9 @@ def execute_scalping_sell(ticker, current_price, quantity):
             "매도",
             current_price,
             quantity,
-            profit,
+            int(profit),
         ),
     )
     conn.commit()
     conn.close()
-    return True, f"수익:{profit:,}원"
+    return True
