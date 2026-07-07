@@ -1,7 +1,6 @@
-# main_logic.py
+import logging
 import re
 import sqlite3
-import urllib.parse
 from datetime import datetime
 
 import ollama
@@ -9,11 +8,12 @@ import requests
 import yfinance as yf
 from bs4 import BeautifulSoup
 
+import config
 from ai_brain import ai_discover_new_stocks, get_ai_investment_decision
 from db_manager import get_statistics
 from kis_api import get_access_token, get_mock_cash_balance
 
-DEBUG = True
+# 404 방지용 정제 리스트
 CLEAN_POOL = [
     "HMM:011200.KS",
     "대한해운:005880.KS",
@@ -38,30 +38,35 @@ def check_ollama_status():
 
 
 def get_market_indices():
+    """[수정] kd_change 변수명 불일치 해결 완료"""
     try:
-        kospi = yf.Ticker("^KS11").history(period="1d")
+        kospi = yf.Ticker("^KS11").history(period="1d", timeout=config.TIMEOUT)
+        kosdaq = yf.Ticker("^KQ11").history(period="1d", timeout=config.TIMEOUT)
         kp = kospi["Close"].iloc[-1]
-        kp_c = ((kp - kospi["Open"].iloc[0]) / kospi["Open"].iloc[0]) * 100
-        nq = yf.Ticker("NQ=F").history(period="1d")
-        nq_c = ((nq["Close"].iloc[-1] - nq["Open"].iloc[0]) / nq["Open"].iloc[0]) * 100
-        es = yf.Ticker("ES=F").history(period="1d")
-        es_c = ((es["Close"].iloc[-1] - es["Open"].iloc[0]) / es["Open"].iloc[0]) * 100
-        return f"KOSPI: {kp_c:+.2f}% | NQ(나스닥선물): {nq_c:+.2f}% | ES(S&P선물): {es_c:+.2f}%"
+        kp_change = ((kp - kospi["Open"].iloc[0]) / kospi["Open"].iloc[0]) * 100
+        kd = kosdaq["Close"].iloc[-1]
+        kd_change = ((kd - kosdaq["Open"].iloc[0]) / kosdaq["Open"].iloc[0]) * 100
+        return f"KOSPI: {kp_change:+.2f}% | KOSDAQ: {kd_change:+.2f}%"
     except:
-        return "지수 정보 업데이트 중..."
+        return "지수 업데이트 중..."
 
 
-def get_kr_realtime_news(ticker_name):
+def get_kr_realtime_news(ticker_name, ticker_code):
+    """네이버 금융 뉴스 수집 (URL 콘솔 출력 포함)"""
     try:
-        url = (
-            f"https://search.naver.com/search.naver?where=news&query={ticker_name}+주가"
-        )
-        print(f"🇰🇷 [NAVER NEWS URL]: {url}")
+        pure_code = re.sub(r"[^0-9]", "", ticker_code)
+        url = f"https://search.naver.com/search.naver?where=news&query={ticker_name}+{pure_code}&sort=1&pd=4"
+        print(f"📡 [DEBUG NEWS URL]: {url}")  # 파트너님 요청 사항
+
         headers = {"User-Agent": "Mozilla/5.0"}
-        res = requests.get(url, headers=headers, timeout=5)
+        res = requests.get(url, headers=headers, timeout=config.TIMEOUT)
         soup = BeautifulSoup(res.text, "html.parser")
-        return [a.text for a in soup.select(".news_tit")[:3]]
+        titles = [a.text for a in soup.select(".news_tit")[:3]]
+        for i, t in enumerate(titles):
+            print(f"   ㄴ [뉴스{i+1}]: {t}")  # 콘솔 생중계
+        return titles
     except Exception as e:
+        logging.error(f"뉴스 수집 실패: {e}")
         return []
 
 
@@ -69,18 +74,24 @@ def refresh_stock_pool_by_capital():
     conn = sqlite3.connect("virtual_trade.db")
     cursor = conn.cursor()
     cash = cursor.execute("SELECT cash FROM account").fetchone()[0]
-    master_list = cursor.execute("SELECT ticker, name FROM stock_master").fetchall()
+    conn.close()
+    ai_raw = ai_discover_new_stocks(cash, ",".join(CLEAN_POOL))
+    ticker_codes = re.findall(r"(\d{6}\.K[SQ])", ai_raw)
     discovered = []
-    for ticker, name in master_list:
+    conn = sqlite3.connect("virtual_trade.db")
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM stock_master")
+    for ticker in list(set(ticker_codes)):
         try:
             stock = yf.Ticker(ticker)
-            hist = stock.history(period="1d")
+            hist = stock.history(period="1d", timeout=config.TIMEOUT)
             if not hist.empty:
                 price = int(hist["Close"].iloc[-1])
                 if price <= cash:
+                    name = stock.info.get("shortName", ticker)
                     cursor.execute(
-                        "UPDATE stock_master SET price = ? WHERE ticker = ?",
-                        (price, ticker),
+                        "INSERT OR REPLACE INTO stock_master VALUES (?, ?, ?)",
+                        (ticker, name, price),
                     )
                     discovered.append(f"{name} ({ticker})")
         except:
@@ -91,7 +102,7 @@ def refresh_stock_pool_by_capital():
 
 
 def predict_market_view():
-    """상단 시장 예측 리포트 - 영어 노출 물리적 차단 및 한글 고정"""
+    """상단 시장 예측 리포트 (한글 고정)"""
     conn = sqlite3.connect("virtual_trade.db")
     stocks = conn.execute(
         "SELECT name, ticker FROM stock_master WHERE price > 0 LIMIT 3"
@@ -99,28 +110,19 @@ def predict_market_view():
     conn.close()
     summary = "\n".join([f"- {s[0]}({s[1]})" for s in stocks])
     indices = get_market_indices()
-
-    # 💡 [핵심] 시작 단어를 고정하고 영어 금지를 극단적으로 강조
-    prompt = f"너는 한국 최고의 수석 전략가이다. 한국어로만 대답하라. 시작은 반드시 '현재 시장 상황은'으로 하라.\n지수: {indices}\n대상종목: {summary}"
+    prompt = f"너의 모국어는 {config.SYSTEM_LANGUAGE}이다. 현재 지수 {indices}와 종목군 {summary}를 분석하여 전략 보고하라. 영어 금지."
     try:
         res = ollama.chat(
-            model="llama3",
+            model=config.AI_MODEL,
             messages=[{"role": "user", "content": prompt}],
-            options={"temperature": 0.05},
+            options={"temperature": 0.1},
         )
         reply = res["message"]["content"].strip()
-
-        # 💡 [사후 필터링] 영어가 30자 이상 발견되면 미리 준비된 한글 리포트로 대체
-        if re.search("[a-zA-Z]{30,}", reply):
-            stock_names = [s[0] for s in stocks]
-            return (
-                f"현재 시장 지수({indices})가 변동성을 보이고 있습니다. "
-                f"분석 중인 {', '.join(stock_names)} 등 저가주 섹터를 중심으로 "
-                "실시간 수급 상황을 모니터링하며 기술적 반등 지점을 공략하는 전략을 추천합니다."
-            )
+        if re.search("[a-zA-Z]{20,}", reply):
+            return "현재 시장의 변동성이 높습니다. 기술적 분석을 통한 단기 매매 관점을 유지하십시오."
         return reply
     except:
-        return "예측 엔진 일시적 지연 중"
+        return "예측 엔진 일시 지연"
 
 
 def get_db_history():
@@ -148,12 +150,16 @@ def get_db_holdings_with_names():
     for n, t, q, a in rows:
         try:
             name = n if n else t
-            cp = int(yf.Ticker(t).history(period="1d")["Close"].iloc[-1])
+            cp = int(
+                yf.Ticker(t)
+                .history(period="1d", timeout=config.TIMEOUT)["Close"]
+                .iloc[-1]
+            )
             profit = (cp - a) * q
             rate = (profit / (a * q)) * 100 if a > 0 else 0
             res.append((name, t, q, a, cp, profit, rate))
         except:
-            res.append(("데이터지연", t, q, a, 0, 0, 0))
+            res.append((n if n else t, t, q, a, 0, 0, 0))
     return res
 
 
@@ -173,12 +179,7 @@ def run_trading_cycle(token, target_ticker, daily_goal):
         stock = yf.Ticker(target_ticker)
         df = stock.history(period="1d", interval="1m")
         if df.empty:
-            return {"status": "WAITING", "msg": "데이터 동기화 대기 중"}
-
-        # [DEBUG] 야후 뉴스 URL 출력 유지
-        print(
-            f"🌍 [YAHOO NEWS URL]: https://finance.yahoo.com/quote/{target_ticker}/news"
-        )
+            return {"status": "WAITING", "msg": "데이터 동기화 대기 중..."}
 
         price = int(df["Close"].iloc[-1])
         chart_data = df["Close"].tail(30).tolist()
@@ -198,13 +199,12 @@ def run_trading_cycle(token, target_ticker, daily_goal):
                 "chart": chart_data,
             }
 
-        ticker_only_name = re.sub(r"\(.*\)", "", target_ticker).strip()
-        n_news = get_kr_realtime_news(ticker_only_name)
+        news = get_kr_realtime_news(
+            re.sub(r"\(.*\)", "", target_ticker).strip(), target_ticker
+        )
         indices = get_market_indices()
-
-        # AI 판단 시 한글 속보 전달
         ai_res = get_ai_investment_decision(
-            target_ticker, price, "차트분석완료", [], n_news, indices
+            target_ticker, price, "분석완료", [], news, indices
         )
         decision = ai_res.get("decision", "HOLD")
         qty = db_cash // (price + (price * 0.0015))
@@ -228,18 +228,13 @@ def run_trading_cycle(token, target_ticker, daily_goal):
                     trade_msg = f"매도성공({hold_qty[0]}주)"
 
         updated_today_p, _, _ = get_statistics()
-        news_report = (
-            "[네이버 금융 실시간 속보]\n" + "\n".join([f"• {h}" for h in n_news])
-            if n_news
-            else "[국내 속보 지연 중]"
-        )
         return {
             "status": "ACTIVE",
             "ticker": target_ticker,
             "price": price,
             "decision": decision,
             "reason": ai_res.get("reason", "분석중"),
-            "news": news_report,
+            "news": "\n".join(news) if news else "수집된 뉴스 없음",
             "db_balance": db_cash,
             "trade_status": trade_msg,
             "today_profit": updated_today_p,

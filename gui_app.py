@@ -1,4 +1,5 @@
 # gui_app.py
+import logging
 import sys
 import threading
 import time
@@ -8,6 +9,7 @@ import customtkinter as ctk
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
+import config
 from db_manager import (
     create_tables,
     get_statistics,
@@ -32,7 +34,7 @@ ctk.set_appearance_mode("dark")
 class TradingApp(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.title("AI 실전 트레이딩 스테이션 v8.6 (No-English Mode)")
+        self.title(f"AI 실전 트레이딩 스테이션 v7.0 (Language Locked)")
         self.geometry("1100x850")
         create_tables()
         self.is_running = False
@@ -42,14 +44,11 @@ class TradingApp(ctk.CTk):
         if not check_ollama_status():
             from tkinter import messagebox
 
-            messagebox.showerror(
-                "엔진 에러",
-                "Ollama 서버가 꺼져 있습니다.\n'ollama run llama3'를 먼저 실행해 주세요.",
-            )
+            messagebox.showerror("엔진 에러", "Ollama 서버가 꺼져 있습니다.")
             self.destroy()
             sys.exit()
 
-        # [1] 상단 바
+        # [1] UI 구성 - 상단 바
         self.header = ctk.CTkFrame(self, height=35, fg_color="#1a1a1a")
         self.header.pack(fill="x", padx=10, pady=2)
         self.clock_label = ctk.CTkLabel(
@@ -66,7 +65,7 @@ class TradingApp(ctk.CTk):
         ctk.CTkButton(
             self.header,
             text="DB 초기화",
-            width=100,
+            width=90,
             height=20,
             fg_color="#660000",
             command=self.confirm_reset,
@@ -79,16 +78,16 @@ class TradingApp(ctk.CTk):
         )
         self.status_signal.pack(side="right", padx=20)
 
-        # [2] 통합 타임라인 로그
+        # [2] 분석 로그
         self.predict_box = ctk.CTkTextbox(
             self, height=100, font=("Malgun Gothic", 12), text_color="#FFD700"
         )
         self.predict_box.pack(fill="x", padx=15, pady=5)
         self.predict_box.insert(
-            "0.0", "🚀 시스템 기동 대기 중 (한글 고정 모드 활성화)\n"
+            "0.0", f"🚀 시스템 가동 대기 중 (언어: {config.SYSTEM_LANGUAGE})\n"
         )
 
-        # [3] 메인 영역
+        # [3] 메인 중앙
         self.mid_frame = ctk.CTkFrame(self)
         self.mid_frame.pack(fill="both", expand=True, padx=15, pady=5)
         self.ai_report_text = ctk.CTkTextbox(self.mid_frame, font=("Malgun Gothic", 14))
@@ -103,7 +102,7 @@ class TradingApp(ctk.CTk):
         self.seed_input = ctk.CTkEntry(
             self.stat_panel, width=120, height=22, justify="center"
         )
-        self.seed_input.insert(0, "100000")
+        self.seed_input.insert(0, str(config.DEFAULT_SEED_MONEY))
         self.seed_input.pack()
         ctk.CTkButton(
             self.stat_panel,
@@ -113,13 +112,14 @@ class TradingApp(ctk.CTk):
             command=self.set_seed,
         ).pack(pady=2)
 
+        # 💡 Pylance 에러 해결: goal_input 선언 확인
         ctk.CTkLabel(
             self.stat_panel, text="🎯 목표 수익(오늘)", font=("Malgun Gothic", 11)
         ).pack()
         self.goal_input = ctk.CTkEntry(
             self.stat_panel, width=120, height=22, justify="center", fg_color="#1a3a1a"
         )
-        self.goal_input.insert(0, "5000")
+        self.goal_input.insert(0, str(config.DEFAULT_GOAL_PROFIT))
         self.goal_input.pack()
 
         self.price_label = ctk.CTkLabel(
@@ -141,7 +141,7 @@ class TradingApp(ctk.CTk):
         )
         self.db_balance_label.pack(pady=5)
         self.ticker_menu = ctk.CTkOptionMenu(
-            self.stat_panel, values=["먼저 갱신을 누르세요"], width=220
+            self.stat_panel, values=["갱신을 먼저 누르세요"], width=220
         )
         self.ticker_menu.pack(pady=5)
         self.progress_bar = ctk.CTkProgressBar(self.stat_panel, width=250)
@@ -155,7 +155,7 @@ class TradingApp(ctk.CTk):
         self.canvas = FigureCanvasTkAgg(self.fig, master=self.stat_panel)
         self.canvas.get_tk_widget().pack(pady=5)
 
-        # [4] 하단 탭
+        # [4] 하단 탭 (가독성 테이블)
         self.tab_view = ctk.CTkTabview(self, height=250)
         self.tab_view.pack(fill="x", padx=15, pady=5)
         self.history_box = ctk.CTkTextbox(
@@ -249,6 +249,7 @@ class TradingApp(ctk.CTk):
         threading.Thread(target=work, daemon=True).start()
 
     def confirm_reset(self):
+        # 💡 Pylance 에러 해결: reset_db_completely 임포트 및 호출 확인
         reset_db_completely()
         self.refresh_ui_from_db()
         self.add_predict_log("☢️ 전체 리셋 완료")
@@ -258,13 +259,12 @@ class TradingApp(ctk.CTk):
             return
         h_data = get_db_history()
         self.history_box.delete("1.0", "end")
-        header = f"{'거래시간':<18} | {'종목명':<12} | {'구분':<4} | {'가격':>10} | {'수량':>4} | {'실현손익':>10}\n"
-        self.history_box.insert("end", header + "=" * 75 + "\n")
+        h_header = f"{'거래시간':<18} | {'종목명':<12} | {'구분':<4} | {'가격':>10} | {'수량':>4} | {'수익':>10}\n"
+        self.history_box.insert("end", h_header + "-" * 80 + "\n")
         for h in h_data:
-            name = h[1] if h[1] else "알수없음"
             self.history_box.insert(
                 "end",
-                f"{h[0]:<18} | {name:<12} | {h[2]:<4} | {int(h[3]):>10,} | {h[4]:>4} | {int(h[5]):>10,}\n",
+                f"{h[0]:<18} | {h[1] if h[1] else '알수없음':<12} | {h[2]:<4} | {int(h[3]):>10,} | {h[4]:>4} | {int(h[5]):>10,}\n",
             )
 
         hold_data = get_db_holdings_with_names()
@@ -297,7 +297,7 @@ class TradingApp(ctk.CTk):
         if data["status"] == "GOAL_REACHED":
             self.is_running = False
             self.add_predict_log(
-                f"🏆 금일 목표 수익 달성! ({int(data['today_profit']):,}원) 안전 종료."
+                f"🏆 오늘 목표 수익 달성! ({int(data['today_profit']):,}원) 자동 종료."
             )
             return
         if data["status"] == "ACTIVE":
@@ -323,24 +323,34 @@ class TradingApp(ctk.CTk):
         while self.is_running:
             if not self.winfo_exists():
                 break
-            ticker = self.ticker_menu.get().split("(")[1].replace(")", "")
+            selection = self.ticker_menu.get()
+            if "(" not in selection:
+                self.after(
+                    0, lambda: self.add_predict_log("⚠️ 분석할 종목을 먼저 선택하세요.")
+                )
+                time.sleep(5)
+                continue
+
+            ticker = selection.split("(")[1].replace(")", "")
             try:
                 goal = int(self.goal_input.get())
             except:
-                goal = 5000
+                goal = config.DEFAULT_GOAL_PROFIT
             res = run_trading_cycle(token, ticker, goal)
             if "error" not in res:
                 if self.winfo_exists():
                     self.after(0, lambda r=res: self.update_ui(r))
                 if res.get("status") == "GOAL_REACHED":
                     break
-            for i in range(61):
+            for i in range(config.SCAN_INTERVAL + 1):
                 if not self.is_running or not self.winfo_exists():
                     break
                 aid = self.after(
                     0,
                     lambda v=i: (
-                        self.progress_bar.set(v / 60) if self.winfo_exists() else None
+                        self.progress_bar.set(v / config.SCAN_INTERVAL)
+                        if self.winfo_exists()
+                        else None
                     ),
                 )
                 self.after_ids.append(aid)
