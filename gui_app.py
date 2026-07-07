@@ -32,7 +32,7 @@ ctk.set_appearance_mode("dark")
 class TradingApp(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.title("AI 실전 트레이딩 스테이션 v8.0 (Dual News Engine)")
+        self.title("AI 실전 트레이딩 스테이션 v8.7 (Debug Ready)")
         self.geometry("1100x850")
         create_tables()
         self.is_running = False
@@ -79,14 +79,16 @@ class TradingApp(ctk.CTk):
         )
         self.status_signal.pack(side="right", padx=20)
 
-        # [2] 통합 타임라인 로그
+        # 시스템 타임라인 로그
         self.predict_box = ctk.CTkTextbox(
             self, height=100, font=("Malgun Gothic", 12), text_color="#FFD700"
         )
         self.predict_box.pack(fill="x", padx=15, pady=5)
-        self.predict_box.insert("0.0", "🚀 시스템 기동 대기 중 (DEBUG 모드 활성화됨)\n")
+        self.predict_box.insert(
+            "0.0", "🚀 시스템 기동 대기 중 (IndexError 방어 모드)\n"
+        )
 
-        # [3] 메인 영역
+        # 메인 중앙
         self.mid_frame = ctk.CTkFrame(self)
         self.mid_frame.pack(fill="both", expand=True, padx=15, pady=5)
         self.ai_report_text = ctk.CTkTextbox(self.mid_frame, font=("Malgun Gothic", 14))
@@ -139,7 +141,7 @@ class TradingApp(ctk.CTk):
         )
         self.db_balance_label.pack(pady=5)
         self.ticker_menu = ctk.CTkOptionMenu(
-            self.stat_panel, values=["갱신을 먼저 누르세요"], width=220
+            self.stat_panel, values=["먼저 갱신을 누르세요"], width=220
         )
         self.ticker_menu.pack(pady=5)
         self.progress_bar = ctk.CTkProgressBar(self.stat_panel, width=250)
@@ -153,7 +155,7 @@ class TradingApp(ctk.CTk):
         self.canvas = FigureCanvasTkAgg(self.fig, master=self.stat_panel)
         self.canvas.get_tk_widget().pack(pady=5)
 
-        # [4] 하단 정렬 테이블
+        # 하단 탭
         self.tab_view = ctk.CTkTabview(self, height=250)
         self.tab_view.pack(fill="x", padx=15, pady=5)
         self.history_box = ctk.CTkTextbox(
@@ -189,6 +191,7 @@ class TradingApp(ctk.CTk):
             except:
                 pass
         plt.close(self.fig)
+        self.quit()
         self.destroy()
 
     def update_clock(self):
@@ -254,15 +257,14 @@ class TradingApp(ctk.CTk):
             return
         h_data = get_db_history()
         self.history_box.delete("1.0", "end")
-        h_header = f"{'거래시간':<18} | {'종목명':<12} | {'구분':^4} | {'가격':>10} | {'수량':>4} | {'수익':>10}\n"
-        self.history_box.insert("end", h_header + "-" * 80 + "\n")
+        header = f"{'거래시간':<18} | {'종목명':<12} | {'구분':^4} | {'가격':>10} | {'수량':>4} | {'실현손익':>10}\n"
+        self.history_box.insert("end", header + "=" * 75 + "\n")
         for h in h_data:
             name = h[1] if h[1] else "알수없음"
             self.history_box.insert(
                 "end",
                 f"{h[0]:<18} | {name:<12} | {h[2]:^4} | {int(h[3]):>10,} | {h[4]:>4} | {int(h[5]):>10,}\n",
             )
-            self.history_box.see("end")
 
         hold_data = get_db_holdings_with_names()
         self.holdings_box.delete("1.0", "end")
@@ -271,9 +273,8 @@ class TradingApp(ctk.CTk):
         for hold in hold_data:
             self.holdings_box.insert(
                 "end",
-                f"{hold[0]:<12} | {hold[1]:<10} | {int(hold[2]):>4} | {int(hold[3]):>10,} | {int(hold[4]):>10,} | {int(hold[5]):>10,} | {hold[6]:>6.2f}%\n",
+                f"{hold[0]:<12} | {hold[1]:<10} | {int(hold[2]):>4} | {int(hold[3]):>10,} | {int(hold[4]):>10,} | {int(hold[5]):>10,} | {hold[6]:>7.2f}%\n",
             )
-            self.holdings_box.see("end")
 
         t, _, _ = get_statistics()
         self.today_profit_label.configure(text=f"오늘 수익: {int(t):,}원")
@@ -295,7 +296,7 @@ class TradingApp(ctk.CTk):
         if data["status"] == "GOAL_REACHED":
             self.is_running = False
             self.add_predict_log(
-                f"🏆 오늘 목표 수익 달성! ({int(data['today_profit']):,}원) 자동 종료."
+                f"🏆 금일 목표 수익 달성! ({int(data['today_profit']):,}원) 안전 종료."
             )
             return
         if data["status"] == "ACTIVE":
@@ -307,8 +308,8 @@ class TradingApp(ctk.CTk):
                 f"🎯 분석: {data['ticker']} | 결정: {data['decision']}\n상태: {data['trade_status']}\n{'-'*30}\n💡 근거: {data['reason']}\n\n{data['news']}",
             )
             self.ai_report_text.configure(state="disabled")
-            self.ai_report_text.see("end")
             self.refresh_ui_from_db()
+            self.ai_report_text.see("end")
             if "chart" in data:
                 self.draw_chart(data["chart"])
             if "성공" in data["trade_status"]:
@@ -321,14 +322,28 @@ class TradingApp(ctk.CTk):
         while self.is_running:
             if not self.winfo_exists():
                 break
-            ticker = self.ticker_menu.get().split("(")[1].replace(")", "")
+
+            # 💡 [IndexError 방어] 종목이 선택되지 않았을 때의 처리
+            selection = self.ticker_menu.get()
+            if "(" not in selection:
+                self.after(
+                    0,
+                    lambda: self.add_predict_log(
+                        "⚠️ 분석할 종목을 먼저 선택하거나 [잔고/종목 갱신]을 누르세요."
+                    ),
+                )
+                time.sleep(5)
+                continue
+
+            ticker = selection.split("(")[1].replace(")", "")
             try:
                 goal = int(self.goal_input.get())
             except:
                 goal = 5000
             res = run_trading_cycle(token, ticker, goal)
             if "error" not in res:
-                self.after(0, lambda r=res: self.update_ui(r))
+                if self.winfo_exists():
+                    self.after(0, lambda r=res: self.update_ui(r))
                 if res.get("status") == "GOAL_REACHED":
                     break
             for i in range(61):

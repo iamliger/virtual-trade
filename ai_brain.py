@@ -8,15 +8,15 @@ def get_ai_investment_decision(
     ticker, current_price, price_history_str, global_news, local_news, market_index_info
 ):
     """
-    글로벌(Yahoo)과 로컬(Naver) 뉴스를 모두 분석하여 판단을 내리는 100% 한글 엔진
+    한글 매매 판단 엔진. 영어 발견 시 물리적으로 정화합니다.
     """
     system_instruction = (
         "너는 여의도 최고의 투자 전략가이다. 모든 분석은 반드시 한국어(Korean)로만 수행한다.\n"
         f"현재 시장 지표: {market_index_info}\n"
         "규칙:\n"
-        "1. 영어를 단 한 단어라도 사용하지 마라.\n"
+        "1. 영어를 단 한 단어도 사용하지 마라. (No English Allowed)\n"
         "2. 반드시 JSON 형식으로만 응답하라.\n"
-        '3. 출력 규격: {"decision": "BUY/SELL/HOLD", "reason": "이유를 한국어로 상세히 작성"}'
+        '3. 출력 규격: {"decision": "BUY/SELL/HOLD", "reason": "이유를 한국어로만 상세히 작성"}'
     )
 
     g_news_txt = "\n".join(global_news) if global_news else "글로벌 소식 없음."
@@ -43,22 +43,25 @@ def get_ai_investment_decision(
         json_match = re.search(r"\{.*\}", ai_reply, re.DOTALL)
         if json_match:
             result = json.loads(json_match.group())
-            # 영어 섞임 방지 가드레일
-            if re.search("[a-zA-Z]{15,}", result.get("reason", "")):
+            # [한글 가드레일] 영어가 너무 많으면 한글 기본 문구로 대체
+            if re.search("[a-zA-Z]{20,}", str(result.get("reason", ""))):
                 result["reason"] = (
-                    "글로벌 뉴스 및 국내 속보를 분석한 결과, 현재 지수의 변동성을 고려하여 기술적 분석에 기반한 매매 전략을 유지합니다."
+                    "시장 지표와 실시간 수급 상황을 분석한 결과, 현재 지수의 변동성이 커지고 있어 기술적 분석에 따른 대응이 필요합니다."
                 )
             return result
-        return {"decision": "HOLD", "reason": "분석 엔진 규격 오류 발생."}
+        return {
+            "decision": "HOLD",
+            "reason": "분석 엔진이 응답 규격을 위반하여 안전 관망합니다.",
+        }
     except Exception as e:
-        return {"decision": "HOLD", "reason": f"AI 분석 에러: {str(e)}"}
+        return {"decision": "HOLD", "reason": f"AI 분석 에러 발생: {str(e)}"}
 
 
 def ai_discover_new_stocks(cash, candidate_pool):
     prompt = (
-        f"자본금 {cash}원으로 살 수 있는 1만원 이하 한국 종목 10개를 골라라.\n"
+        f"현재 시드머니 {cash}원으로 살 수 있는 1만원 이하 한국 종목 10개를 골라라.\n"
         f"후보: {candidate_pool}\n"
-        "출력형식: 종목명:코드 (리스트만 한국어로 나열)"
+        "출력형식: 종목명:코드 (리스트만 한국어로 나열하고 설명 절대 금지)"
     )
     try:
         response = ollama.chat(
