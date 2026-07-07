@@ -1,5 +1,7 @@
+# main_logic.py
 import re
 import sqlite3
+import urllib.parse
 from datetime import datetime
 
 import ollama
@@ -38,44 +40,28 @@ def check_ollama_status():
 def get_market_indices():
     try:
         kospi = yf.Ticker("^KS11").history(period="1d")
-        kosdaq = yf.Ticker("^KQ11").history(period="1d")
         kp = kospi["Close"].iloc[-1]
         kp_c = ((kp - kospi["Open"].iloc[0]) / kospi["Open"].iloc[0]) * 100
-        kd = kosdaq["Close"].iloc[-1]
-        kd_c = ((kd - kosdaq["Open"].iloc[0]) / kosdaq["Open"].iloc[0]) * 100
-        return f"KOSPI: {kp:,.2f}({kp_c:+.2f}%), KOSDAQ: {kd:,.2f}({kd_c:+.2f}%)"
+        nq = yf.Ticker("NQ=F").history(period="1d")
+        nq_c = ((nq["Close"].iloc[-1] - nq["Open"].iloc[0]) / nq["Open"].iloc[0]) * 100
+        es = yf.Ticker("ES=F").history(period="1d")
+        es_c = ((es["Close"].iloc[-1] - es["Open"].iloc[0]) / es["Open"].iloc[0]) * 100
+        return f"KOSPI: {kp_c:+.2f}% | NQ(나스닥선물): {nq_c:+.2f}% | ES(S&P선물): {es_c:+.2f}%"
     except:
         return "지수 정보 업데이트 중..."
 
 
-def get_kr_realtime_news(ticker_name, ticker_code):
-    """
-    [핵심 수정] 네이버 뉴스 쿼리 최적화 및 콘솔 정밀 출력
-    주소 예시: https://search.naver.com/search.naver?where=news&query=HMM+011200
-    """
+def get_kr_realtime_news(ticker_name):
     try:
-        # 숫자 코드만 추출 (예: 011200.KS -> 011200)
-        pure_code = re.sub(r"[^0-9]", "", ticker_code)
-        url = f"https://search.naver.com/search.naver?where=news&query={ticker_name}+{pure_code}"
-
-        # 1. 콘솔에 요청 URL 출력
-        print(f"\n📡 [NEWS SCRAPING]: {url}")
-
+        url = (
+            f"https://search.naver.com/search.naver?where=news&query={ticker_name}+주가"
+        )
+        print(f"🇰🇷 [NAVER NEWS URL]: {url}")
         headers = {"User-Agent": "Mozilla/5.0"}
         res = requests.get(url, headers=headers, timeout=5)
         soup = BeautifulSoup(res.text, "html.parser")
-        news_titles = [a.text for a in soup.select(".news_tit")[:3]]
-
-        # 2. 콘솔에 수집된 뉴스 내용 생중계
-        if news_titles:
-            for i, title in enumerate(news_titles):
-                print(f"   ㄴ [속보{i+1}]: {title}")
-        else:
-            print("   ㄴ ⚠️ 수집된 실시간 속보가 없습니다.")
-
-        return news_titles
+        return [a.text for a in soup.select(".news_tit")[:3]]
     except Exception as e:
-        print(f"   ㄴ ❌ 뉴스 크롤링 에러: {e}")
         return []
 
 
@@ -105,6 +91,7 @@ def refresh_stock_pool_by_capital():
 
 
 def predict_market_view():
+    """상단 시장 예측 리포트 - 영어 노출 물리적 차단 및 한글 고정"""
     conn = sqlite3.connect("virtual_trade.db")
     stocks = conn.execute(
         "SELECT name, ticker FROM stock_master WHERE price > 0 LIMIT 3"
@@ -112,7 +99,9 @@ def predict_market_view():
     conn.close()
     summary = "\n".join([f"- {s[0]}({s[1]})" for s in stocks])
     indices = get_market_indices()
-    prompt = f"너는 여의도 최고의 투자 전략가이다. 한국어로 현재 지수 {indices}와 종목군 {summary}를 분석하여 전략 보고하라. 시작은 반드시 '현재 시장 상황은'으로 하라."
+
+    # 💡 [핵심] 시작 단어를 고정하고 영어 금지를 극단적으로 강조
+    prompt = f"너는 한국 최고의 수석 전략가이다. 한국어로만 대답하라. 시작은 반드시 '현재 시장 상황은'으로 하라.\n지수: {indices}\n대상종목: {summary}"
     try:
         res = ollama.chat(
             model="llama3",
@@ -120,11 +109,18 @@ def predict_market_view():
             options={"temperature": 0.05},
         )
         reply = res["message"]["content"].strip()
+
+        # 💡 [사후 필터링] 영어가 30자 이상 발견되면 미리 준비된 한글 리포트로 대체
         if re.search("[a-zA-Z]{30,}", reply):
-            return f"현재 한국 시장 지수({indices})가 변동성을 보이고 있습니다. 분석 대상 종목을 중심으로 실시간 수급을 관찰하며 보수적인 단타 전략을 권장합니다."
+            stock_names = [s[0] for s in stocks]
+            return (
+                f"현재 시장 지수({indices})가 변동성을 보이고 있습니다. "
+                f"분석 중인 {', '.join(stock_names)} 등 저가주 섹터를 중심으로 "
+                "실시간 수급 상황을 모니터링하며 기술적 반등 지점을 공략하는 전략을 추천합니다."
+            )
         return reply
     except:
-        return "예측 엔진 일시 연결 지연"
+        return "예측 엔진 일시적 지연 중"
 
 
 def get_db_history():
@@ -179,7 +175,7 @@ def run_trading_cycle(token, target_ticker, daily_goal):
         if df.empty:
             return {"status": "WAITING", "msg": "데이터 동기화 대기 중"}
 
-        # [DEBUG] 야후 뉴스 URL
+        # [DEBUG] 야후 뉴스 URL 출력 유지
         print(
             f"🌍 [YAHOO NEWS URL]: https://finance.yahoo.com/quote/{target_ticker}/news"
         )
@@ -202,10 +198,11 @@ def run_trading_cycle(token, target_ticker, daily_goal):
                 "chart": chart_data,
             }
 
-        # 💡 [핵심] 뉴스 수집 시 이름과 코드 모두 전달
         ticker_only_name = re.sub(r"\(.*\)", "", target_ticker).strip()
-        n_news = get_kr_realtime_news(ticker_only_name, target_ticker)
+        n_news = get_kr_realtime_news(ticker_only_name)
         indices = get_market_indices()
+
+        # AI 판단 시 한글 속보 전달
         ai_res = get_ai_investment_decision(
             target_ticker, price, "차트분석완료", [], n_news, indices
         )
@@ -232,7 +229,7 @@ def run_trading_cycle(token, target_ticker, daily_goal):
 
         updated_today_p, _, _ = get_statistics()
         news_report = (
-            "[국내 실시간 속보]\n" + "\n".join([f"• {h}" for h in n_news])
+            "[네이버 금융 실시간 속보]\n" + "\n".join([f"• {h}" for h in n_news])
             if n_news
             else "[국내 속보 지연 중]"
         )

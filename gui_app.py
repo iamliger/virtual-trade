@@ -32,7 +32,7 @@ ctk.set_appearance_mode("dark")
 class TradingApp(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.title("AI 실전 트레이딩 스테이션 v8.7 (Debug Ready)")
+        self.title("AI 실전 트레이딩 스테이션 v8.6 (No-English Mode)")
         self.geometry("1100x850")
         create_tables()
         self.is_running = False
@@ -79,16 +79,16 @@ class TradingApp(ctk.CTk):
         )
         self.status_signal.pack(side="right", padx=20)
 
-        # 시스템 타임라인 로그
+        # [2] 통합 타임라인 로그
         self.predict_box = ctk.CTkTextbox(
             self, height=100, font=("Malgun Gothic", 12), text_color="#FFD700"
         )
         self.predict_box.pack(fill="x", padx=15, pady=5)
         self.predict_box.insert(
-            "0.0", "🚀 시스템 기동 대기 중 (IndexError 방어 모드)\n"
+            "0.0", "🚀 시스템 기동 대기 중 (한글 고정 모드 활성화)\n"
         )
 
-        # 메인 중앙
+        # [3] 메인 영역
         self.mid_frame = ctk.CTkFrame(self)
         self.mid_frame.pack(fill="both", expand=True, padx=15, pady=5)
         self.ai_report_text = ctk.CTkTextbox(self.mid_frame, font=("Malgun Gothic", 14))
@@ -155,7 +155,7 @@ class TradingApp(ctk.CTk):
         self.canvas = FigureCanvasTkAgg(self.fig, master=self.stat_panel)
         self.canvas.get_tk_widget().pack(pady=5)
 
-        # 하단 탭
+        # [4] 하단 탭
         self.tab_view = ctk.CTkTabview(self, height=250)
         self.tab_view.pack(fill="x", padx=15, pady=5)
         self.history_box = ctk.CTkTextbox(
@@ -233,15 +233,16 @@ class TradingApp(ctk.CTk):
                 amt = int(self.seed_input.get())
                 update_cash(amt)
                 new_list = refresh_stock_pool_by_capital()
-                self.after(
-                    0,
-                    lambda: (
-                        self.ticker_menu.configure(values=new_list),
-                        self.ticker_menu.set(new_list[0]),
-                        self.refresh_ui_from_db(),
-                        self.add_predict_log(f"💰 {amt:,}원 맞춤형 종목 발굴 완료"),
-                    ),
-                )
+                if self.winfo_exists():
+                    self.after(
+                        0,
+                        lambda: (
+                            self.ticker_menu.configure(values=new_list),
+                            self.ticker_menu.set(new_list[0]),
+                            self.refresh_ui_from_db(),
+                            self.add_predict_log(f"💰 {amt:,}원 맞춤형 종목 발굴 완료"),
+                        ),
+                    )
             except:
                 pass
 
@@ -257,13 +258,13 @@ class TradingApp(ctk.CTk):
             return
         h_data = get_db_history()
         self.history_box.delete("1.0", "end")
-        header = f"{'거래시간':<18} | {'종목명':<12} | {'구분':^4} | {'가격':>10} | {'수량':>4} | {'실현손익':>10}\n"
+        header = f"{'거래시간':<18} | {'종목명':<12} | {'구분':<4} | {'가격':>10} | {'수량':>4} | {'실현손익':>10}\n"
         self.history_box.insert("end", header + "=" * 75 + "\n")
         for h in h_data:
             name = h[1] if h[1] else "알수없음"
             self.history_box.insert(
                 "end",
-                f"{h[0]:<18} | {name:<12} | {h[2]:^4} | {int(h[3]):>10,} | {h[4]:>4} | {int(h[5]):>10,}\n",
+                f"{h[0]:<18} | {name:<12} | {h[2]:<4} | {int(h[3]):>10,} | {h[4]:>4} | {int(h[5]):>10,}\n",
             )
 
         hold_data = get_db_holdings_with_names()
@@ -322,20 +323,7 @@ class TradingApp(ctk.CTk):
         while self.is_running:
             if not self.winfo_exists():
                 break
-
-            # 💡 [IndexError 방어] 종목이 선택되지 않았을 때의 처리
-            selection = self.ticker_menu.get()
-            if "(" not in selection:
-                self.after(
-                    0,
-                    lambda: self.add_predict_log(
-                        "⚠️ 분석할 종목을 먼저 선택하거나 [잔고/종목 갱신]을 누르세요."
-                    ),
-                )
-                time.sleep(5)
-                continue
-
-            ticker = selection.split("(")[1].replace(")", "")
+            ticker = self.ticker_menu.get().split("(")[1].replace(")", "")
             try:
                 goal = int(self.goal_input.get())
             except:

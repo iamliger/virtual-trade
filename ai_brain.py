@@ -1,3 +1,4 @@
+# ai_brain.py
 import json
 import re
 
@@ -8,7 +9,7 @@ def get_ai_investment_decision(
     ticker, current_price, price_history_str, global_news, local_news, market_index_info
 ):
     """
-    한글 매매 판단 엔진. 영어 발견 시 물리적으로 정화합니다.
+    한글 전용 투자 판단 엔진. 영어가 섞일 경우 시스템이 사후에 필터링합니다.
     """
     system_instruction = (
         "너는 여의도 최고의 투자 전략가이다. 모든 분석은 반드시 한국어(Korean)로만 수행한다.\n"
@@ -16,7 +17,7 @@ def get_ai_investment_decision(
         "규칙:\n"
         "1. 영어를 단 한 단어도 사용하지 마라. (No English Allowed)\n"
         "2. 반드시 JSON 형식으로만 응답하라.\n"
-        '3. 출력 규격: {"decision": "BUY/SELL/HOLD", "reason": "이유를 한국어로만 상세히 작성"}'
+        '3. 출력 규격: {"decision": "BUY/SELL/HOLD", "reason": "이유를 한국어로 상세히 작성"}'
     )
 
     g_news_txt = "\n".join(global_news) if global_news else "글로벌 소식 없음."
@@ -43,10 +44,10 @@ def get_ai_investment_decision(
         json_match = re.search(r"\{.*\}", ai_reply, re.DOTALL)
         if json_match:
             result = json.loads(json_match.group())
-            # [한글 가드레일] 영어가 너무 많으면 한글 기본 문구로 대체
-            if re.search("[a-zA-Z]{20,}", str(result.get("reason", ""))):
+            # [사후 필터링] 영어 문장 발견 시 한글로 강제 변환
+            if re.search("[a-zA-Z]{15,}", str(result.get("reason", ""))):
                 result["reason"] = (
-                    "시장 지표와 실시간 수급 상황을 분석한 결과, 현재 지수의 변동성이 커지고 있어 기술적 분석에 따른 대응이 필요합니다."
+                    "현재 지수의 변동성이 확대되는 구간입니다. 기술적 지표와 수급 흐름을 분석한 결과, 보수적인 관점에서 대응 전략을 수립하였습니다."
                 )
             return result
         return {
