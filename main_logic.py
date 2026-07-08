@@ -1,3 +1,4 @@
+# main_logic.py
 import logging
 import re
 import sqlite3
@@ -12,8 +13,23 @@ from ai_brain import ai_discover_new_stocks, get_ai_investment_decision
 from db_manager import get_statistics
 from kis_api import get_access_token, get_mock_cash_balance
 
-# 💡 파트너님이 완성하신 고성능 뉴스 모듈을 임포트합니다.
+# 💡 확정된 이름의 뉴스 모듈 임포트
 from news_crawler import get_naver_stock_news
+
+DEBUG = True
+CLEAN_POOL = [
+    "HMM:011200.KS",
+    "대한해운:005880.KS",
+    "미래산업:025560.KS",
+    "대원전선:006340.KS",
+    "우리기술:032820.KQ",
+    "팬오션:028670.KS",
+    "삼성중공업:010140.KS",
+    "이구산업:025820.KS",
+    "모나리자:004700.KS",
+    "대창:012800.KS",
+    "케이옥션:102370.KQ",
+]
 
 
 def check_ollama_status():
@@ -29,82 +45,66 @@ def get_market_indices():
         kospi = yf.Ticker("^KS11").history(period="1d", timeout=config.TIMEOUT)
         kosdaq = yf.Ticker("^KQ11").history(period="1d", timeout=config.TIMEOUT)
         kp = kospi["Close"].iloc[-1]
-        kp_open = kospi["Open"].iloc[0]
-        kp_c = ((kp - kp_open) / kp_open * 100) if kp_open != 0 else 0.0
+        kp_o = kospi["Open"].iloc[0]
+        kp_c = ((kp - kp_o) / kp_o * 100) if kp_o != 0 else 0.0
         kd = kosdaq["Close"].iloc[-1]
-        kd_open = kosdaq["Open"].iloc[0]
-        kd_c = ((kd - kd_open) / kd_open * 100) if kd_open != 0 else 0.0
-        return f"KOSPI: {kp_c:+.2f}% | KOSDAQ: {kd_c:+.2f}%"
+        kd_o = kosdaq["Open"].iloc[0]
+        kd_change = ((kd - kd_o) / kd_o * 100) if kd_o != 0 else 0.0
+        return f"KOSPI: {kp_c:+.2f}% | KOSDAQ: {kd_change:+.2f}%"
     except:
         return "지수 업데이트 중..."
 
 
 def refresh_stock_pool_by_capital():
-    try:
-        conn = sqlite3.connect("virtual_trade.db")
-        cursor = conn.cursor()
-        cash = cursor.execute("SELECT cash FROM account").fetchone()[0]
-        conn.close()
-
-        # 임시 리스트 (나중에 DB화 가능)
-        POOL = [
-            "HMM:011200.KS",
-            "대한해운:005880.KS",
-            "미래산업:025560.KS",
-            "대원전선:006340.KS",
-            "우리기술:032820.KQ",
-            "대창:012800.KS",
-        ]
-        ai_raw = ai_discover_new_stocks(cash, ",".join(POOL))
-        ticker_codes = re.findall(r"(\d{6}\.K[SQ])", ai_raw)
-
-        discovered = []
-        conn = sqlite3.connect("virtual_trade.db")
-        cursor = conn.cursor()
-        cursor.execute("DELETE FROM stock_master")
-        for ticker in list(set(ticker_codes)):
-            try:
-                stock = yf.Ticker(ticker)
-                hist = stock.history(period="1d", timeout=config.TIMEOUT)
-                if not hist.empty:
-                    price = int(hist["Close"].iloc[-1])
-                    if price <= cash:
-                        name = stock.info.get("shortName", ticker)
-                        cursor.execute(
-                            "INSERT OR REPLACE INTO stock_master VALUES (?, ?, ?)",
-                            (ticker, name, price),
-                        )
-                        discovered.append(f"{name} ({ticker})")
-            except:
-                continue
-        conn.commit()
-        conn.close()
-        return discovered if discovered else ["대한해운 (005880.KS)"]
-    except:
-        return ["대한해운 (005880.KS)"]
+    conn = sqlite3.connect("virtual_trade.db")
+    cursor = conn.cursor()
+    cash = cursor.execute("SELECT cash FROM account").fetchone()[0]
+    conn.close()
+    ai_raw = ai_discover_new_stocks(cash, ",".join(CLEAN_POOL))
+    ticker_codes = re.findall(r"(\d{6}\.K[SQ])", ai_raw)
+    discovered = []
+    conn = sqlite3.connect("virtual_trade.db")
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM stock_master")
+    for ticker in list(set(ticker_codes)):
+        try:
+            stock = yf.Ticker(ticker)
+            hist = stock.history(period="1d", timeout=config.TIMEOUT)
+            if not hist.empty:
+                price = int(hist["Close"].iloc[-1])
+                if price <= cash:
+                    name = stock.info.get("shortName", ticker)
+                    cursor.execute(
+                        "INSERT OR REPLACE INTO stock_master VALUES (?, ?, ?)",
+                        (ticker, name, price),
+                    )
+                    discovered.append(f"{name} ({ticker})")
+        except:
+            continue
+    conn.commit()
+    conn.close()
+    return discovered if discovered else ["대한해운 (005880.KS)"]
 
 
 def predict_market_view():
+    conn = sqlite3.connect("virtual_trade.db")
+    stocks = conn.execute(
+        "SELECT name, ticker FROM stock_master WHERE price > 0 LIMIT 3"
+    ).fetchall()
+    conn.close()
+    summary = "\n".join([f"- {s[0]}({s[1]})" for s in stocks])
+    indices = get_market_indices()
+    prompt = f"너는 한국 수석 전략가이다. 한국어로 지수 {indices}와 종목 {summary}를 분석하라. 영어 금지."
     try:
-        conn = sqlite3.connect("virtual_trade.db")
-        stocks = conn.execute(
-            "SELECT name, ticker FROM stock_master WHERE price > 0 LIMIT 3"
-        ).fetchall()
-        conn.close()
-        summary = "\n".join([f"- {s[0]}({s[1]})" for s in stocks])
-        indices = get_market_indices()
-        prompt = f"너는 한국 수석 전략가이다. 한국어로 지수 {indices}와 종목 {summary}를 분석하라. 영어 금지."
         res = ollama.chat(
             model=config.AI_MODEL,
             messages=[{"role": "user", "content": prompt}],
             options={"temperature": 0.1},
         )
         reply = res["message"]["content"].strip()
-        return (
-            reply
-            if not re.search("[a-zA-Z]{20,}", reply)
-            else "지수 변동성을 고려한 대응을 추천합니다."
-        )
+        if re.search("[a-zA-Z]{20,}", reply):
+            return "시장 지수 변동성이 큰 상태입니다. 안정적인 저가주 중심 매매를 추천합니다."
+        return reply
     except:
         return "분석 엔진 연결 지연"
 
@@ -143,11 +143,23 @@ def get_db_holdings_with_names():
 
 
 def run_trading_cycle(token, target_ticker, daily_goal):
+    """
+    [핵심 수정] DB에서 종목명을 정확히 조회하여 뉴스 크롤러에 전달
+    """
     try:
         today_p, week_p, month_p = get_statistics()
         conn = sqlite3.connect("virtual_trade.db")
         db_cash = conn.execute("SELECT cash FROM account").fetchone()[0]
+
+        # 💡 [핵심] 코드(target_ticker)를 가지고 DB에서 한글 이름(ticker_name) 조회
+        name_row = conn.execute(
+            "SELECT name FROM stock_master WHERE ticker = ?", (target_ticker,)
+        ).fetchone()
         conn.close()
+        ticker_name = (
+            name_row[0] if name_row else target_ticker
+        )  # DB에 없으면 코드라도 사용
+
         if daily_goal > 0 and today_p >= daily_goal:
             return {
                 "status": "GOAL_REACHED",
@@ -158,7 +170,7 @@ def run_trading_cycle(token, target_ticker, daily_goal):
         stock = yf.Ticker(target_ticker)
         df = stock.history(period="1d", interval="1m")
         if df.empty:
-            return {"status": "WAITING", "msg": "시세 동기화 대기 중"}
+            return {"status": "WAITING", "msg": "데이터 동기화 대기 중"}
 
         price = int(df["Close"].iloc[-1])
         chart_data = df["Close"].tail(30).tolist()
@@ -180,13 +192,12 @@ def run_trading_cycle(token, target_ticker, daily_goal):
                 "chart": chart_data,
             }
 
-        # 💡 [파트너님의 신규 모듈 적용]
-        ticker_name = re.sub(r"\(.*\)", "", target_ticker).strip()
+        # 💡 [파트너님 제안 반영] 뉴스 모듈 호출 (순수 종목명과 코드를 정확히 전달)
         news = get_naver_stock_news(ticker_name, target_ticker)
 
         indices = get_market_indices()
         ai_res = get_ai_investment_decision(
-            target_ticker, price, "분석완료", [], news, indices
+            target_ticker, price, "추세분석완료", [], news, indices
         )
         decision = ai_res.get("decision", "HOLD")
 

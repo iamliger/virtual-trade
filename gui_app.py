@@ -34,7 +34,7 @@ ctk.set_appearance_mode("dark")
 class TradingApp(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.title("AI 실전 트레이딩 스테이션 v11.5 (Stable)")
+        self.title("AI 실전 트레이딩 스테이션 v12.5 (Fixed News Engine)")
         self.geometry("1100x850")
         create_tables()
         self.is_running = False
@@ -44,11 +44,13 @@ class TradingApp(ctk.CTk):
         if not check_ollama_status():
             from tkinter import messagebox
 
-            messagebox.showerror("엔진 에러", "Ollama 서버가 꺼져 있습니다.")
+            messagebox.showerror(
+                "엔진 에러",
+                "Ollama 서버가 꺼져 있습니다.\n'ollama run llama3'를 먼저 실행해 주세요.",
+            )
             self.destroy()
             sys.exit()
 
-        # [1] UI 구성
         self.header = ctk.CTkFrame(self, height=35, fg_color="#1a1a1a")
         self.header.pack(fill="x", padx=10, pady=2)
         self.clock_label = ctk.CTkLabel(
@@ -82,7 +84,9 @@ class TradingApp(ctk.CTk):
             self, height=100, font=("Malgun Gothic", 12), text_color="#FFD700"
         )
         self.predict_box.pack(fill="x", padx=15, pady=5)
-        self.predict_box.insert("0.0", "🚀 시스템 안정화 엔진(v11.5) 가동 준비 완료\n")
+        self.predict_box.insert(
+            "0.0", "🚀 고성능 뉴스 크롤러 엔진(v12.5) 활성화 완료\n"
+        )
 
         self.mid_frame = ctk.CTkFrame(self)
         self.mid_frame.pack(fill="both", expand=True, padx=15, pady=5)
@@ -143,14 +147,12 @@ class TradingApp(ctk.CTk):
         self.progress_bar.set(0)
         self.progress_bar.pack(pady=10)
 
-        # 차트
         self.fig, self.ax = plt.subplots(figsize=(4, 2), dpi=80)
         self.fig.set_facecolor("#212121")
         self.ax.set_facecolor("#000000")
         self.canvas = FigureCanvasTkAgg(self.fig, master=self.stat_panel)
         self.canvas.get_tk_widget().pack(pady=5)
 
-        # 하단 탭
         self.tab_view = ctk.CTkTabview(self, height=250)
         self.tab_view.pack(fill="x", padx=15, pady=5)
         self.history_box = ctk.CTkTextbox(
@@ -179,20 +181,13 @@ class TradingApp(ctk.CTk):
         self.refresh_ui_from_db()
 
     def on_closing(self):
-        """[핵심 수정] 종료 시 모든 예약 작업 및 자원 완전 해제"""
         self.is_running = False
-        # 💡 모든 after 콜백 취소
         for aid in self.after_ids:
             try:
                 self.after_cancel(aid)
             except:
                 pass
-        self.after_ids.clear()
-
-        # 💡 Matplotlib 자원 해제
         plt.close(self.fig)
-
-        # 💡 앱 종료
         self.quit()
         self.destroy()
 
@@ -245,9 +240,8 @@ class TradingApp(ctk.CTk):
                             self.add_predict_log(f"💰 {amt:,}원 맞춤형 종목 발굴 완료"),
                         ),
                     )
-            except Exception as e:
-                if self.winfo_exists():
-                    self.after(0, lambda: self.add_predict_log(f"❌ 설정 오류: {e}"))
+            except:
+                pass
 
         threading.Thread(target=work, daemon=True).start()
 
@@ -327,6 +321,8 @@ class TradingApp(ctk.CTk):
             if not self.winfo_exists():
                 break
             selection = self.ticker_menu.get()
+
+            # 💡 [IndexError 방어] 종목 미선택 시 대기
             if "(" not in selection:
                 self.after(
                     0, lambda: self.add_predict_log("⚠️ 분석할 종목을 먼저 선택하세요.")
@@ -345,16 +341,13 @@ class TradingApp(ctk.CTk):
                     self.after(0, lambda r=res: self.update_ui(r))
                 if res.get("status") == "GOAL_REACHED":
                     break
-            for i in range(config.SCAN_INTERVAL + 1):
+            for i in range(61):
                 if not self.is_running or not self.winfo_exists():
                     break
-                # 💡 [핵심 해결] 루프 내 after도 id를 저장하여 종료 시 캔슬 가능하게 함
                 aid = self.after(
                     0,
                     lambda v=i: (
-                        self.progress_bar.set(v / config.SCAN_INTERVAL)
-                        if self.winfo_exists()
-                        else None
+                        self.progress_bar.set(v / 60) if self.winfo_exists() else None
                     ),
                 )
                 self.after_ids.append(aid)

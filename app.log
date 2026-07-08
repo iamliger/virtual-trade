@@ -316,3 +316,15 @@
 2026-07-08 10:09:02,849 [INFO] HTTP Request: POST http://127.0.0.1:11434/api/chat "HTTP/1.1 200 OK"
 2026-07-08 10:10:09,349 [INFO] HTTP Request: POST http://127.0.0.1:11434/api/chat "HTTP/1.1 200 OK"
 2026-07-08 10:11:16,335 [INFO] HTTP Request: POST http://127.0.0.1:11434/api/chat "HTTP/1.1 200 OK"
+2026-07-08 11:27:11,230 [INFO] DB 전체 리셋 완료
+2026-07-08 11:27:38,553 [INFO] HTTP Request: POST http://127.0.0.1:11434/api/chat "HTTP/1.1 200 OK"
+2026-07-08 11:27:38,945 [ERROR] $033640.KS: possibly delisted; no price data found  (period=1d)
+2026-07-08 11:27:40,299 [ERROR] HTTP Error 404: {"quoteSummary":{"result":null,"error":{"code":"Not Found","description":"Quote not found for symbol: 032240.KS"}}}
+2026-07-08 11:27:41,282 [ERROR] $032240.KS: possibly delisted; no price data found  (period=1d) (Yahoo error = "No data found, symbol may be delisted")
+2026-07-08 11:27:42,493 [ERROR] $025560.KS: possibly delisted; no price data found  (period=1d)
+2026-07-08 11:27:43,759 [ERROR] HTTP Error 404: {"quoteSummary":{"result":null,"error":{"code":"Not Found","description":"Quote not found for symbol: 035490.KS"}}}
+2026-07-08 11:27:44,583 [ERROR] $035490.KS: possibly delisted; no price data found  (period=1d) (Yahoo error = "No data found, symbol may be delisted")
+2026-07-08 11:27:47,853 [ERROR] $036330.KS: possibly delisted; no price data found  (period=1d) (Yahoo error = "No data found, symbol may be delisted")
+2026-07-08 11:27:52,052 [INFO] HTTP Request: POST http://127.0.0.1:11434/api/chat "HTTP/1.1 200 OK"
+2026-07-08 11:27:58,905 [INFO] HTTP Request: POST http://127.0.0.1:11434/api/chat "HTTP/1.1 200 OK"
+2026-07-08 11:29:06,833 [INFO] HTTP Request: POST http://127.0.0.1:11434/api/chat "HTTP/1.1 200 OK"
