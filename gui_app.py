@@ -1,5 +1,4 @@
 # gui_app.py
-import logging
 import sys
 import threading
 import time
@@ -27,6 +26,7 @@ from main_logic import (
     refresh_stock_pool_by_capital,
     run_trading_cycle,
 )
+from trade_manager import force_exit_all_stocks
 
 ctk.set_appearance_mode("dark")
 
@@ -34,7 +34,7 @@ ctk.set_appearance_mode("dark")
 class TradingApp(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.title("AI 실전 트레이딩 스테이션 v12.5 (Fixed News Engine)")
+        self.title("AI 실전 트레이딩 스테이션 v18.1 (Debug Focused)")
         self.geometry("1100x850")
         create_tables()
         self.is_running = False
@@ -44,10 +44,7 @@ class TradingApp(ctk.CTk):
         if not check_ollama_status():
             from tkinter import messagebox
 
-            messagebox.showerror(
-                "엔진 에러",
-                "Ollama 서버가 꺼져 있습니다.\n'ollama run llama3'를 먼저 실행해 주세요.",
-            )
+            messagebox.showerror("에러", "Ollama 서버가 꺼져 있습니다.")
             self.destroy()
             sys.exit()
 
@@ -63,7 +60,15 @@ class TradingApp(ctk.CTk):
             font=("Malgun Gothic", 12),
             text_color="#FFB2D9",
         )
-        self.index_label.pack(side="left", padx=50)
+        self.index_label.pack(side="left", padx=30)
+        ctk.CTkButton(
+            self.header,
+            text="🚨 강제 매도",
+            width=100,
+            height=20,
+            fg_color="#FF0000",
+            command=self.btn_force_exit,
+        ).pack(side="right", padx=10)
         ctk.CTkButton(
             self.header,
             text="DB 초기화",
@@ -84,26 +89,18 @@ class TradingApp(ctk.CTk):
             self, height=100, font=("Malgun Gothic", 12), text_color="#FFD700"
         )
         self.predict_box.pack(fill="x", padx=15, pady=5)
-        self.predict_box.insert(
-            "0.0", "🚀 고성능 뉴스 크롤러 엔진(v12.5) 활성화 완료\n"
-        )
-
         self.mid_frame = ctk.CTkFrame(self)
         self.mid_frame.pack(fill="both", expand=True, padx=15, pady=5)
         self.ai_report_text = ctk.CTkTextbox(self.mid_frame, font=("Malgun Gothic", 14))
         self.ai_report_text.pack(side="left", fill="both", expand=True, padx=5, pady=5)
-
         self.stat_panel = ctk.CTkFrame(self.mid_frame, width=320, fg_color="#212121")
         self.stat_panel.pack(side="right", fill="both", expand=False, padx=5, pady=5)
 
-        ctk.CTkLabel(
-            self.stat_panel, text="💰 시드머니", font=("Malgun Gothic", 11)
-        ).pack()
         self.seed_input = ctk.CTkEntry(
             self.stat_panel, width=120, height=22, justify="center"
         )
         self.seed_input.insert(0, str(config.DEFAULT_SEED_MONEY))
-        self.seed_input.pack()
+        self.seed_input.pack(pady=5)
         ctk.CTkButton(
             self.stat_panel,
             text="잔고/종목 갱신",
@@ -111,21 +108,14 @@ class TradingApp(ctk.CTk):
             height=22,
             command=self.set_seed,
         ).pack(pady=2)
-
-        ctk.CTkLabel(
-            self.stat_panel, text="🎯 목표 수익(오늘)", font=("Malgun Gothic", 11)
-        ).pack()
         self.goal_input = ctk.CTkEntry(
             self.stat_panel, width=120, height=22, justify="center", fg_color="#1a3a1a"
         )
         self.goal_input.insert(0, str(config.DEFAULT_GOAL_PROFIT))
-        self.goal_input.pack()
+        self.goal_input.pack(pady=5)
 
         self.price_label = ctk.CTkLabel(
-            self.stat_panel,
-            text="--원",
-            font=("Consolas", 40, "bold"),
-            text_color="#FFFFFF",
+            self.stat_panel, text="--원", font=("Consolas", 40, "bold")
         )
         self.price_label.pack(pady=10)
         self.today_profit_label = ctk.CTkLabel(
@@ -140,7 +130,7 @@ class TradingApp(ctk.CTk):
         )
         self.db_balance_label.pack(pady=5)
         self.ticker_menu = ctk.CTkOptionMenu(
-            self.stat_panel, values=["먼저 갱신을 누르세요"], width=220
+            self.stat_panel, values=["갱신을 먼저 누르세요"], width=220
         )
         self.ticker_menu.pack(pady=5)
         self.progress_bar = ctk.CTkProgressBar(self.stat_panel, width=250)
@@ -188,7 +178,6 @@ class TradingApp(ctk.CTk):
             except:
                 pass
         plt.close(self.fig)
-        self.quit()
         self.destroy()
 
     def update_clock(self):
@@ -224,6 +213,11 @@ class TradingApp(ctk.CTk):
             self.btn_control.configure(text="▶ 엔진 가동 재개", fg_color="green")
             self.status_signal.configure(text="● ENGINE STOPPED", text_color="red")
 
+    def btn_force_exit(self):
+        count = force_exit_all_stocks()
+        self.add_predict_log(f"🚨 강제 매도: {count}개 종목 정리 완료")
+        self.refresh_ui_from_db()
+
     def set_seed(self):
         def work():
             try:
@@ -237,7 +231,7 @@ class TradingApp(ctk.CTk):
                             self.ticker_menu.configure(values=new_list),
                             self.ticker_menu.set(new_list[0]),
                             self.refresh_ui_from_db(),
-                            self.add_predict_log(f"💰 {amt:,}원 맞춤형 종목 발굴 완료"),
+                            self.add_predict_log(f"💰 {amt:,}원 맞춤 종목 발굴 완료"),
                         ),
                     )
             except:
@@ -255,13 +249,12 @@ class TradingApp(ctk.CTk):
             return
         h_data = get_db_history()
         self.history_box.delete("1.0", "end")
-        header = f"{'거래시간':<18} | {'종목명':<12} | {'구분':<4} | {'가격':>10} | {'수량':>4} | {'실현손익':>10}\n"
+        header = f"{'거래시간':<18} | {'종목명':<12} | {'구분':<4} | {'가격':>10} | {'수량':>4} | {'손익':>10}\n"
         self.history_box.insert("end", header + "-" * 80 + "\n")
         for h in h_data:
-            name = h[1] if h[1] else "알수없음"
             self.history_box.insert(
                 "end",
-                f"{h[0]:<18} | {name:<12} | {h[2]:<4} | {int(h[3]):>10,} | {h[4]:>4} | {int(h[5]):>10,}\n",
+                f"{h[0]:<18} | {h[1] if h[1] else '알수없음':<12} | {h[2]:<4} | {int(h[3]):>10,} | {h[4]:>4} | {int(h[5]):>10,}\n",
             )
 
         hold_data = get_db_holdings_with_names()
@@ -301,10 +294,9 @@ class TradingApp(ctk.CTk):
             self.price_label.configure(text=f"{int(data['price']):,}원")
             self.ai_report_text.configure(state="normal")
             self.ai_report_text.delete("1.0", "end")
-            self.ai_report_text.insert(
-                "1.0",
-                f"🎯 분석: {data['ticker']} | 결정: {data['decision']}\n상태: {data['trade_status']}\n{'-'*30}\n💡 근거: {data['reason']}\n\n{data['news']}",
-            )
+            info_txt = f"🎯 분석: {data['ticker']} | 결정: {data['decision']}\n"
+            info_txt += f"📊 규모: 약 {data.get('total_value', 0):,}원 투입\n상태: {data['trade_status']}\n{'-'*30}\n💡 근거: {data['reason']}\n\n{data['news']}"
+            self.ai_report_text.insert("1.0", info_txt)
             self.ai_report_text.configure(state="disabled")
             self.refresh_ui_from_db()
             self.ai_report_text.see("end")
@@ -321,21 +313,17 @@ class TradingApp(ctk.CTk):
             if not self.winfo_exists():
                 break
             selection = self.ticker_menu.get()
-
-            # 💡 [IndexError 방어] 종목 미선택 시 대기
             if "(" not in selection:
                 self.after(
                     0, lambda: self.add_predict_log("⚠️ 분석할 종목을 먼저 선택하세요.")
                 )
                 time.sleep(5)
                 continue
-
-            ticker = selection.split("(")[1].replace(")", "")
             try:
                 goal = int(self.goal_input.get())
             except:
-                goal = config.DEFAULT_GOAL_PROFIT
-            res = run_trading_cycle(token, ticker, goal)
+                goal = 5000
+            res = run_trading_cycle(token, selection, goal)
             if "error" not in res:
                 if self.winfo_exists():
                     self.after(0, lambda r=res: self.update_ui(r))

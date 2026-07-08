@@ -8,58 +8,48 @@ from bs4 import BeautifulSoup
 
 def get_naver_stock_news(ticker_name, ticker_code):
     """
-    네이버 뉴스에서 특정 종목의 최신 속보를 수집하는 독립 모듈
+    네이버 증권 종목 뉴스 섹션 직접 크롤링 (User-Agent 및 Referer 보강)
     """
     news_list = []
     try:
-        # 종목코드 숫자만 추출
         pure_code = re.sub(r"[^0-9]", "", str(ticker_code))
-
-        # 검색 쿼리 최적화: 종목명 위주로 검색
-        query_str = f"{ticker_name}"
-        query = urllib.parse.quote(query_str)
-
-        # sort=1 (최신순), pd=4 (1일 이내)
-        url = f"https://search.naver.com/search.naver?where=news&query={query}&sort=1&pd=4"
+        # 네이버 증권 전용 뉴스 URL (통합검색보다 차단이 적음)
+        url = f"https://finance.naver.com/item/news_news.naver?code={pure_code}"
 
         headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+            "Referer": f"https://finance.naver.com/item/main.naver?code={pure_code}",
+            "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
         }
 
-        res = requests.get(url, headers=headers, timeout=5)
-        if res.status_code != 200:
-            return [f"네이버 연결 실패 (상태코드: {res.status_code})"]
+        print(f"🔍 [DEBUG NEWS URL]: {url}")
+        res = requests.get(url, headers=headers, timeout=7)
+        res.encoding = "euc-kr"  # 네이버 금융은 EUC-KR 사용
 
         soup = BeautifulSoup(res.text, "html.parser")
+        # 제목 선택자 정밀 타겟팅
+        titles = soup.select(".tit")
 
-        # [네이버 뉴스 신규 구조 대응]
-        titles = soup.select(".news_tit, .sds-comps-text-type-headline1, .tit_main")
+        for t in titles[:5]:
+            headline = t.text.strip()
+            if headline:
+                news_list.append(headline)
+                print(f"   ㄴ [SUCCESS]: {headline[:30]}...")
 
-        for t in titles[:3]:  # 최신 3개만 수집
-            news_list.append(t.text.strip())
-
-        # [결과 부족 시 기간 제한 해제 재검색]
+        # 만약 증권 섹터 뉴스가 없으면 통합 검색으로 Fallback
         if not news_list:
-            url_no_limit = (
+            print("   ⚠️ [WARNING]: 증권 섹터 뉴스 부재, 통합 검색 시도...")
+            query = urllib.parse.quote(ticker_name)
+            fallback_url = (
                 f"https://search.naver.com/search.naver?where=news&query={query}&sort=1"
             )
-            res = requests.get(url_no_limit, headers=headers, timeout=5)
+            res = requests.get(fallback_url, headers=headers, timeout=5)
             soup = BeautifulSoup(res.text, "html.parser")
-            titles = soup.select(".news_tit, .sds-comps-text-type-headline1, .tit_main")
-            for t in titles[:3]:
-                news_list.append(t.text.strip() + " (최근 뉴스 없음 - 전체 기간)")
+            for t in soup.select(".news_tit")[:3]:
+                news_list.append(t.text.strip())
 
     except Exception as e:
-        return [f"뉴스 수집 중 오류 발생: {str(e)}"]
+        print(f"   ❌ [ERROR]: 뉴스 크롤링 중 치명적 오류 - {e}")
+        return [f"뉴스 수집 일시 중단: {str(e)}"]
 
     return news_list
-
-
-if __name__ == "__main__":
-    test_name = "대창"
-    test_code = "012800"
-    print(f"🚀 [{test_name}] 뉴스 수집 테스트 시작...")
-    results = get_naver_stock_news(test_name, test_code)
-    for i, news in enumerate(results):
-        print(f"{i+1}. {news}")
