@@ -34,7 +34,7 @@ ctk.set_appearance_mode("dark")
 class TradingApp(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.title(f"AI 실전 트레이딩 스테이션 v7.0 (Language Locked)")
+        self.title("AI 실전 트레이딩 스테이션 v11.5 (Stable)")
         self.geometry("1100x850")
         create_tables()
         self.is_running = False
@@ -48,7 +48,7 @@ class TradingApp(ctk.CTk):
             self.destroy()
             sys.exit()
 
-        # [1] UI 구성 - 상단 바
+        # [1] UI 구성
         self.header = ctk.CTkFrame(self, height=35, fg_color="#1a1a1a")
         self.header.pack(fill="x", padx=10, pady=2)
         self.clock_label = ctk.CTkLabel(
@@ -78,16 +78,12 @@ class TradingApp(ctk.CTk):
         )
         self.status_signal.pack(side="right", padx=20)
 
-        # [2] 분석 로그
         self.predict_box = ctk.CTkTextbox(
             self, height=100, font=("Malgun Gothic", 12), text_color="#FFD700"
         )
         self.predict_box.pack(fill="x", padx=15, pady=5)
-        self.predict_box.insert(
-            "0.0", f"🚀 시스템 가동 대기 중 (언어: {config.SYSTEM_LANGUAGE})\n"
-        )
+        self.predict_box.insert("0.0", "🚀 시스템 안정화 엔진(v11.5) 가동 준비 완료\n")
 
-        # [3] 메인 중앙
         self.mid_frame = ctk.CTkFrame(self)
         self.mid_frame.pack(fill="both", expand=True, padx=15, pady=5)
         self.ai_report_text = ctk.CTkTextbox(self.mid_frame, font=("Malgun Gothic", 14))
@@ -112,7 +108,6 @@ class TradingApp(ctk.CTk):
             command=self.set_seed,
         ).pack(pady=2)
 
-        # 💡 Pylance 에러 해결: goal_input 선언 확인
         ctk.CTkLabel(
             self.stat_panel, text="🎯 목표 수익(오늘)", font=("Malgun Gothic", 11)
         ).pack()
@@ -141,7 +136,7 @@ class TradingApp(ctk.CTk):
         )
         self.db_balance_label.pack(pady=5)
         self.ticker_menu = ctk.CTkOptionMenu(
-            self.stat_panel, values=["갱신을 먼저 누르세요"], width=220
+            self.stat_panel, values=["먼저 갱신을 누르세요"], width=220
         )
         self.ticker_menu.pack(pady=5)
         self.progress_bar = ctk.CTkProgressBar(self.stat_panel, width=250)
@@ -155,7 +150,7 @@ class TradingApp(ctk.CTk):
         self.canvas = FigureCanvasTkAgg(self.fig, master=self.stat_panel)
         self.canvas.get_tk_widget().pack(pady=5)
 
-        # [4] 하단 탭 (가독성 테이블)
+        # 하단 탭
         self.tab_view = ctk.CTkTabview(self, height=250)
         self.tab_view.pack(fill="x", padx=15, pady=5)
         self.history_box = ctk.CTkTextbox(
@@ -184,13 +179,20 @@ class TradingApp(ctk.CTk):
         self.refresh_ui_from_db()
 
     def on_closing(self):
+        """[핵심 수정] 종료 시 모든 예약 작업 및 자원 완전 해제"""
         self.is_running = False
+        # 💡 모든 after 콜백 취소
         for aid in self.after_ids:
             try:
                 self.after_cancel(aid)
             except:
                 pass
+        self.after_ids.clear()
+
+        # 💡 Matplotlib 자원 해제
         plt.close(self.fig)
+
+        # 💡 앱 종료
         self.quit()
         self.destroy()
 
@@ -243,13 +245,13 @@ class TradingApp(ctk.CTk):
                             self.add_predict_log(f"💰 {amt:,}원 맞춤형 종목 발굴 완료"),
                         ),
                     )
-            except:
-                pass
+            except Exception as e:
+                if self.winfo_exists():
+                    self.after(0, lambda: self.add_predict_log(f"❌ 설정 오류: {e}"))
 
         threading.Thread(target=work, daemon=True).start()
 
     def confirm_reset(self):
-        # 💡 Pylance 에러 해결: reset_db_completely 임포트 및 호출 확인
         reset_db_completely()
         self.refresh_ui_from_db()
         self.add_predict_log("☢️ 전체 리셋 완료")
@@ -259,12 +261,13 @@ class TradingApp(ctk.CTk):
             return
         h_data = get_db_history()
         self.history_box.delete("1.0", "end")
-        h_header = f"{'거래시간':<18} | {'종목명':<12} | {'구분':<4} | {'가격':>10} | {'수량':>4} | {'수익':>10}\n"
-        self.history_box.insert("end", h_header + "-" * 80 + "\n")
+        header = f"{'거래시간':<18} | {'종목명':<12} | {'구분':<4} | {'가격':>10} | {'수량':>4} | {'실현손익':>10}\n"
+        self.history_box.insert("end", header + "-" * 80 + "\n")
         for h in h_data:
+            name = h[1] if h[1] else "알수없음"
             self.history_box.insert(
                 "end",
-                f"{h[0]:<18} | {h[1] if h[1] else '알수없음':<12} | {h[2]:<4} | {int(h[3]):>10,} | {h[4]:>4} | {int(h[5]):>10,}\n",
+                f"{h[0]:<18} | {name:<12} | {h[2]:<4} | {int(h[3]):>10,} | {h[4]:>4} | {int(h[5]):>10,}\n",
             )
 
         hold_data = get_db_holdings_with_names()
@@ -297,7 +300,7 @@ class TradingApp(ctk.CTk):
         if data["status"] == "GOAL_REACHED":
             self.is_running = False
             self.add_predict_log(
-                f"🏆 오늘 목표 수익 달성! ({int(data['today_profit']):,}원) 자동 종료."
+                f"🏆 금일 목표 수익 달성! ({int(data['today_profit']):,}원) 안전 종료."
             )
             return
         if data["status"] == "ACTIVE":
@@ -345,6 +348,7 @@ class TradingApp(ctk.CTk):
             for i in range(config.SCAN_INTERVAL + 1):
                 if not self.is_running or not self.winfo_exists():
                     break
+                # 💡 [핵심 해결] 루프 내 after도 id를 저장하여 종료 시 캔슬 가능하게 함
                 aid = self.after(
                     0,
                     lambda v=i: (
